@@ -31,42 +31,14 @@ The script automates a sophisticated marketing analytics workflow. Here’s a st
 
 ## Customization
 
-This project is designed to be adaptable. Here’s how you can customize it for your specific needs:
+This project is designed to be adaptable for various data sources and analytical needs. While the script works out-of-the-box with the specified CSV formats, we provide a detailed guide for users who need to customize the script for their own data schemas or add more complex features.
 
-### 1. Adapting for Different Input Data
+For detailed instructions on how to:
+*   Map the script to your specific CSV column names without renaming your files.
+*   Change the primary performance KPI.
+*   Add new custom covariates (e.g., competitor data, promotions) to the model.
 
-While the script expects specific column names, you can easily adapt it to your own data schemas. The primary locations for data loading and cleaning are in the `main` function of `scripts/local_main.py`. As long as your dataframes are prepared to have a `Date` column, a KPI column, and investment columns, the analysis will run correctly.
-
-### 2. Changing the Performance KPI
-
-By default, the script uses a column named `Sessions` as the primary performance metric. You can easily change this by adding the `performance_kpi_column` parameter to your `config.json` file.
-
-For example, if your performance metric is in a column named `Leads`, your `config.json` would look like this:
-```json
-{
-  "advertiser_name": "Advertiser A",
-  "performance_kpi_column": "Leads",
-  "investment_file_path": "inputs/advertiser_a/investment-data.csv",
-  ...
-}
-```
-The script will automatically use the `Leads` column for the analysis and update the chart and report labels accordingly.
-
-### 3. Adding Custom Covariates
-
-The model can incorporate additional time-series data as covariates to improve its accuracy. For example, you might want to include data on competitor spending, promotions, or other market events.
-
-To add a new covariate:
-1.  **Create a CSV file** with at least two columns: a `Date` column and a column for your new metric (e.g., `competitor_spend`).
-2.  **Load the data** in `scripts/local_main.py` and merge it into the `market_trends_df` dataframe. Add this code snippet after the `market_trends_df` is created (around line 80):
-
-    ```python
-    # Load and merge custom covariate data
-    custom_covariate_df = pd.read_csv('path/to/your/custom_data.csv')
-    custom_covariate_df['Date'] = pd.to_datetime(custom_covariate_df['Date'])
-    market_trends_df = pd.merge(market_trends_df, custom_covariate_df, on='Date', how='left').fillna(0)
-    ```
-The automated feature selection process will automatically detect and consider any new numeric columns you add to the `market_trends_df` when building the causal impact model.
+Please refer to our detailed **[Advanced Customization Guide](CUSTOMIZATION.md)**.
 
 ---
 

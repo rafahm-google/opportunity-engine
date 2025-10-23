@@ -128,17 +128,12 @@ def _generate_full_report_narrative(gemini_client, results_data, config, market_
             "mape": f"{results_data.get('mape', 0):.2f}%"
         },
         "investment_scenarios": projection_df.to_string() if projection_df is not None else "N/A",
-        "market_trends_summary": market_analysis_df.describe().to_string()
     }
 
     # --- 2. Define the JSON structure Gemini should return ---
     json_schema = f"""
     {{
       "report_title": "A concise, executive-level title for the report.",
-      "part0_market_context": {{
-        "consumer_landscape_narrative": "A paragraph analyzing the general market trend based on the provided data, framing it as a strategic opportunity or risk for the client.",
-        "market_analysis_narrative": "A paragraph analyzing the client's specific performance vs. the market, identifying the key strategic risk or choice they face."
-      }},
       "part1_value_delivered": {{
         "narrative": "A paragraph summarizing the proven past impact (Part 1 of TO Framework). It must quantify the incremental lift in business terms ({recommendation_kpi}) using the provided data.",
         "methodology_narrative": "A brief, executive-friendly explanation of the statsmodels.tsa.UnobservedComponents methodology."
@@ -302,13 +297,6 @@ def generate_html_report(gemini_client, results_data, config, image_paths, outpu
     <body>
         <div class="container">
             <div class="header"><h1>{report_title}</h1></div>
-            
-            <div class="section">
-                <h2>O Cenário Estratégico do Consumidor</h2>
-                <p>{consumer_landscape_narrative}</p>
-                <div class="chart-container"><img src="data:image/png;base64,{market_analysis_img}" alt="Gráfico de Análise de Mercado"></div>
-                <p>{market_analysis_narrative}</p>
-            </div>
 
             <div class="section">
                 <h2>Parte 1: Valor Entregue - Provando o Impacto Passado</h2>
@@ -372,8 +360,6 @@ def generate_html_report(gemini_client, results_data, config, image_paths, outpu
     </html>
     """.format(
         report_title=narrative.get('report_title', 'Análise de Impacto Causal'),
-        consumer_landscape_narrative=narrative.get('part0_market_context', {}).get('consumer_landscape_narrative', ''),
-        market_analysis_narrative=narrative.get('part0_market_context', {}).get('market_analysis_narrative', ''),
         value_delivered_narrative=narrative.get('part1_value_delivered', {}).get('narrative', ''),
         methodology_narrative=narrative.get('part1_value_delivered', {}).get('methodology_narrative', ''),
         projected_impact_narrative=narrative.get('part2_projected_impact', {}).get('narrative', ''),
@@ -385,7 +371,6 @@ def generate_html_report(gemini_client, results_data, config, image_paths, outpu
         strategic_rationale_narrative=narrative.get('part3_investment_opportunity', {}).get('strategic_rationale_narrative', ''),
         next_steps_html=next_steps_html,
         scenarios_table_html=scenarios_table_html,
-        market_analysis_img=image_b64s.get('market_analysis', ''),
         line_img=image_b64s.get('line', ''),
         investment_img=image_b64s.get('investment', ''),
         sessions_img=image_b64s.get('sessions', ''),

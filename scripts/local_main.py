@@ -242,9 +242,6 @@ def main(config):
                 image_paths['sessions'] = os.path.join(event_output_dir, f"sessions_chart_{file_base_name}.png")
                 presentation.save_sessions_bar_plot(analyzed_event['sessions_bar_df'], image_paths['sessions'], kpi_name=kpi_col)
 
-                image_paths['market_analysis'] = os.path.join(event_output_dir, f"market_analysis_plot_{file_base_name}.png")
-                presentation.save_market_analysis_plot(market_analysis_df, config['advertiser_name'], image_paths['market_analysis'], kpi_name=kpi_col)
-
                 if full_response_curve_df is not None:
                     image_paths['opportunity'] = os.path.join(event_output_dir, f"opportunity_chart_{file_base_name}.png")
                     presentation.save_opportunity_curve_plot(

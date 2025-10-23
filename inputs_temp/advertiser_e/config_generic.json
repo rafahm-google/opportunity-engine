@@ -1,0 +1,20 @@
+{
+  "investment_file_path": "local_project/inputs/advertiser_e/investment-data.csv",
+  "performance_file_path": "local_project/inputs/advertiser_e/performance_data.csv",
+  "generic_trends_file_path": "local_project/inputs/advertiser_e/generic_trends.csv",
+  "performance_kpi_column": "Ad Opportunities",
+  "output_directory": "outputs",
+  "advertiser_name": "Advertiser E",
+  "client_business_goal": "Increase Ad Opportunities",
+  "primary_business_metric_name": "Ad Opportunities",
+  "increase_threshold_percent": 70,
+  "decrease_threshold_percent": 70,
+  "post_event_days": 14,
+  "p_value_threshold": 0.1,
+  "isolation_mode": "Group Overlaps (Combined Analysis)",
+  "conversion_rate_from_kpi_to_bo": 1,
+  "average_ticket": 25,
+  "hypothetical_investment_to_pitch": 100000,
+  "max_events_to_analyze": 3,
+  "pre_selection_candidate_pool_size": 30
+}

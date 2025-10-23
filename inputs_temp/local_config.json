@@ -1,0 +1,19 @@
+{
+  "investment_file_path": "local_project/inputs/investment_data.csv",
+  "performance_file_path": "local_project/inputs/performance_data.csv",
+  "generic_trends_file_path": "local_project/inputs/generic_trends.csv",
+
+  "output_directory": "local_project/outputs",
+  "hypothetical_investment_to_pitch": 1000000,
+  "advertiser_name": "Volkswagen",
+  "increase_threshold_percent": 50,
+  "decrease_threshold_percent": 50,
+  "post_event_days": 21,
+  "p_value_threshold": 0.1,
+  "isolation_mode": "Group Overlaps (Combined Analysis)",
+  "client_business_goal": "Increase sales by 200%",
+  "primary_business_metric_name": "Sales",
+  "conversion_rate_from_kpi_to_bo": 0.00044198,
+  "average_ticket": 131000,
+  "source_of_truth": "Google Internal Data",
+}

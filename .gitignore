@@ -16,3 +16,14 @@ outputs/
 # IDE specific files
 .vscode/
 .idea/\n# Ignore local confidential data\ninputs/
+
+# Ignore alternative and legacy scripts
+scripts/analysis_similaweb.py
+scripts/local_main_similaweb.py
+scripts/consolidated_analysis.py
+scripts/consolidated_report_v2.py
+scripts/consolidated_report.py
+scripts/final_consolidated_report.py
+scripts/debug_forecast.py
+scripts/product_meta_analysis.py
+

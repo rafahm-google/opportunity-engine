@@ -16,6 +16,7 @@ import re
 import traceback
 import pandas as pd
 from datetime import timedelta
+from dotenv import load_dotenv
 
 import os
 
@@ -28,6 +29,15 @@ import gemini_report
 def main(config):
     """Main execution block for the script."""
     
+    # --- START MODIFICATION: Load API key from .env ---
+    load_dotenv()
+    api_key = os.getenv("GEMINI_API_KEY")
+    if not api_key:
+        print("❌ ERROR: GEMINI_API_KEY not found in your .env file.")
+        return
+    config['gemini_api_key'] = api_key
+    # --- END MODIFICATION ---
+
     gemini_client = google_api.authenticate_gemini(config['gemini_api_key'])
     if not gemini_client:
         print("❌ Halting execution due to Gemini authentication failure.")

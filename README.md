@@ -39,25 +39,44 @@ pip install -r requirements.txt
 
 ### 3. Configuration
 
-**a. Set up your Gemini API Key:**
+**a. Create the `inputs` Directory:**
+This project requires an `inputs` directory in the root of the project to hold your data and configuration files. This directory is not tracked by Git to protect confidential data.
+
+Your local directory structure should look like this:
+```
+opportunity-engine/
+├── inputs/
+│   ├── advertiser_a/
+│   │   ├── config.json
+│   │   ├── investment-data.csv
+│   │   └── performance_data.csv
+│   └── advertiser_b/
+│       ├── config.json
+│       └── ...
+├── scripts/
+├── .gitignore
+└── README.md
+```
+
+**b. Set up your Gemini API Key:**
 Create a file named `.env` in the root of the project directory and add your API key:
 ```
 GEMINI_API_KEY="your_api_key_here"
 ```
 **Note:** The `.gitignore` file is configured to prevent this file from being uploaded to GitHub.
 
-**b. Configure the Analysis:**
-The `inputs/` directory contains configuration files for each advertiser (e.g., `inputs/claro/config_claro.json`). To run an analysis, you need to set up the paths to your data files within the appropriate config file.
+**c. Configure the Analysis:**
+Inside each advertiser's directory (e.g., `inputs/advertiser_a/`), create a `config.json` file. This file tells the script where to find the data for that specific advertiser.
 
-Example `config_claro.json`:
+Example `config.json` for `advertiser_a`:
 ```json
 {
-  "advertiser_name": "Claro",
-  "investment_file_path": "inputs/claro/investment-data.csv",
-  "performance_file_path": "inputs/claro/performance_data.csv",
-  "generic_trends_file_path": "inputs/claro/generic_trends.csv",
-  "average_ticket": 200,
-  "conversion_rate_from_kpi_to_bo": 0.01,
+  "advertiser_name": "Advertiser A",
+  "investment_file_path": "inputs/advertiser_a/investment-data.csv",
+  "performance_file_path": "inputs/advertiser_a/performance-data.csv",
+  "generic_trends_file_path": "inputs/advertiser_a/generic_trends.csv",
+  "average_ticket": 1000,
+  "conversion_rate_from_kpi_to_bo": 0.015,
   "p_value_threshold": 0.1,
   "increase_threshold_percent": 50,
   "decrease_threshold_percent": 30,
@@ -71,14 +90,14 @@ Example `config_claro.json`:
 
 Execute the main script from the root directory, pointing to the configuration file for the advertiser you wish to analyze.
 
-**Example for Claro:**
+**Example for Advertiser A:**
 ```bash
-python3 scripts/local_main.py --config inputs/claro/config_claro.json
+python3 scripts/local_main.py --config inputs/advertiser_a/config.json
 ```
 
-**Example for Estacio:**
+**Example for Advertiser B:**
 ```bash
-python3 scripts/local_main.py --config inputs/estacio/config_estacio.json
+python3 scripts/local_main.py --config inputs/advertiser_b/config.json
 ```
 
 The script will run the full analysis and generate all outputs (HTML reports, charts, and the advertiser-specific CSV log) in the `outputs/` directory.

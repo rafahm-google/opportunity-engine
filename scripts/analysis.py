@@ -385,9 +385,14 @@ def run_opportunity_projection(best_alpha, best_k, best_s, max_kpi_scaler, daily
         else:
             baseline_revenue = baseline_kpi * conversion_rate
         
-        # Re-populate baseline_point with calculated revenue if possible
+        # --- START FIX: Fully populate the baseline_point dictionary ---
         baseline_point['Daily_Investment'] = baseline_investment
         baseline_point['Projected_Total_KPIs'] = baseline_kpi
+        baseline_point['Projected_Revenue'] = baseline_revenue
+        baseline_point['Incremental_Investment'] = 0
+        baseline_point['Incremental_Revenue'] = 0
+        baseline_point['Incremental_ROI'] = 0 # ROI is 0 by definition at baseline
+        # --- END FIX ---
         
         response_curve_df['Incremental_Investment'] = response_curve_df['Daily_Investment'] - baseline_investment
         response_curve_df['Incremental_Revenue'] = response_curve_df['Projected_Revenue'] - baseline_revenue
@@ -413,11 +418,12 @@ def run_opportunity_projection(best_alpha, best_k, best_s, max_kpi_scaler, daily
             return response_curve_df, scenarios_df, baseline_point, default_max_roi_point, default_max_roi_point
 
         # Point 1: Baseline (already defined)
+        baseline_point['Scenario'] = 'Cenário Atual'
 
         # Point 2: Maximum Incremental ROI (Max Efficiency)
         max_roi_index = response_curve_df_above_baseline['Incremental_ROI'].idxmax()
         max_roi_point = response_curve_df_above_baseline.loc[max_roi_index].to_dict()
-        max_roi_point['Scenario'] = 'Max Efficiency'
+        max_roi_point['Scenario'] = 'Máximo ROI'
 
         # Point 3: Diminishing Returns (Knee of the curve)
         scaler = MinMaxScaler()
@@ -434,17 +440,23 @@ def run_opportunity_projection(best_alpha, best_k, best_s, max_kpi_scaler, daily
         diminishing_return_point['Scenario'] = 'Ponto de Inflexão'
         diminishing_return_point['Incremental_ROI'] = (diminishing_return_point['Incremental_Revenue'] / diminishing_return_point['Incremental_Investment']) if diminishing_return_point['Incremental_Investment'] > 0 else 0
 
-        # Point 4: Saturation Point (Illustrative)
-        # Find the point on the curve closest to a high daily investment (e.g., 60k, which is ~1.8M monthly)
-        saturation_investment_target = 60000
-        saturation_index = (response_curve_df['Daily_Investment'] - saturation_investment_target).abs().idxmin()
-        saturation_point = response_curve_df.loc[saturation_index].to_dict()
-        saturation_point['Scenario'] = 'Ponto de Saturação'
-        saturation_point['Incremental_ROI'] = (saturation_point['Incremental_Revenue'] / saturation_point['Incremental_Investment']) if saturation_point['Incremental_Investment'] > 0 else 0
+        # --- START MODIFICATION: Hybrid logic for the fourth point ---
+        saturation_point = None # Default to None
+        avg_ticket = config.get('average_ticket', 0)
 
+        if avg_ticket > 0:
+            # For revenue-driven models, find the last point where ROI > 1
+            profitable_df = response_curve_df[response_curve_df['Incremental_ROI'] > 1]
+            if not profitable_df.empty:
+                max_profitable_index = profitable_df['Daily_Investment'].idxmax()
+                saturation_point = response_curve_df.loc[max_profitable_index].to_dict()
+                saturation_point['Scenario'] = 'Máximo Investimento Lucrativo'
+        # If no avg_ticket, saturation_point remains None, and the inflection point becomes the focus.
+        # --- END MODIFICATION ---
 
-        # Create scenarios_df for the report table
-        scenarios_df = pd.DataFrame([baseline_point, max_roi_point, diminishing_return_point, saturation_point])
+        # Create scenarios_df for the report table, filtering out None
+        scenarios_to_plot = [baseline_point, max_roi_point, diminishing_return_point, saturation_point]
+        scenarios_df = pd.DataFrame([p for p in scenarios_to_plot if p is not None])
 
         return response_curve_df, scenarios_df, baseline_point, max_roi_point, diminishing_return_point, saturation_point
 

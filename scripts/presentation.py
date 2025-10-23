@@ -186,30 +186,32 @@ def save_opportunity_curve_plot(response_curve_df, baseline_point, max_roi_point
         # Plot the full response curve
         ax.plot(response_curve_df['Daily_Investment'], response_curve_df['Projected_Total_KPIs'], label='Curva de Resposta Preditiva', color='#4285F4', zorder=1)
 
-        # --- Annotate the 4 key points with new labels ---
-        points_to_plot = {
-            "Cenário Atual": (baseline_point, 'gray', 'o'),
-            "Máximo ROI": (max_roi_point, 'green', 'o'),
-            "Ponto de Inflexão": (diminishing_return_point, 'red', '*'),
-            "Ponto de Saturação": (saturation_point, 'purple', 'X')
-        }
+        # --- START MODIFICATION: Use dynamic labels and handle optional points ---
+        points_to_plot = [
+            (baseline_point, 'gray', 'o'),
+            (max_roi_point, 'green', 'o'),
+            (diminishing_return_point, 'red', '*'),
+            (saturation_point, 'purple', 'X') # This can be None
+        ]
 
-        for label, (point_data, color, marker) in points_to_plot.items():
-            if point_data is None: continue
+        for point_data, color, marker in points_to_plot:
+            if point_data is None: 
+                continue # Skip plotting if the point is None
+            
+            label = point_data.get('Scenario', 'Ponto Estratégico') # Use dynamic label
             inv = point_data['Daily_Investment']
             kpi = point_data['Projected_Total_KPIs']
             
-            # Use different zorder to ensure star is on top
             z = 3 if marker == '*' else 2
             ax.plot(inv, kpi, marker, color=color, markersize=12 if marker != '*' else 15, label=label, zorder=z, markeredgecolor='white', markeredgewidth=1.5)
             
-            # Adjust text position for clarity
             vertical_offset = response_curve_df['Projected_Total_KPIs'].max() * 0.05
             ax.annotate(f"{label}\nR${inv*30.4/1000:.1f}k",
                         xy=(inv, kpi),
                         xytext=(inv, kpi + vertical_offset),
                         ha='center', va='bottom', fontsize=10, weight='bold',
                         arrowprops=dict(arrowstyle="->", connectionstyle="arc3,rad=0.1", color='black'))
+        # --- END MODIFICATION ---
 
         ax.set_title('Curva de Resposta: Cenários Estratégicos de Investimento', fontsize=16, weight='bold')
         ax.set_xlabel('Investimento Diário (R$)', fontsize=12)

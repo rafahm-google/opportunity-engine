@@ -202,7 +202,16 @@ def run_causal_impact_analysis(kpi_df, daily_investment_df, market_trends_df, pr
             median_investment = np.median(pre_period_adstocked_investment)
             if median_investment == 0: median_investment = 1
 
-            popt, _ = curve_fit(hill_for_fit, pre_period_adstocked_investment, pre_period_data['Sessions'], p0=[2, median_investment], maxfev=5000)
+            # --- START FIX: Add bounds to curve_fit to prevent descending curves ---
+            popt, _ = curve_fit(
+                hill_for_fit, 
+                pre_period_adstocked_investment, 
+                pre_period_data['Sessions'], 
+                p0=[2, median_investment], 
+                bounds=(0, np.inf), # Force k and s to be non-negative
+                maxfev=5000
+            )
+            # --- END FIX ---
             best_k, best_s = popt
             print(f"   - Best saturation params found: k={best_k:.2f}, s={best_s:.2f}")
         except (RuntimeError, ValueError):

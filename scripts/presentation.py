@@ -12,6 +12,7 @@ from sklearn.preprocessing import MinMaxScaler
 import numpy as np
 from scipy.interpolate import make_interp_spline
 import matplotlib.ticker as mtick
+from matplotlib.ticker import FuncFormatter
 
 __all__ = [
     'format_number',
@@ -176,64 +177,76 @@ def save_market_analysis_plot(df, advertiser_name, output_filename, kpi_name="Se
     except Exception as e:
         print(f"   - ❌ ERROR: Could not generate market analysis plot. Details: {e}")
 
-def save_opportunity_curve_plot(response_curve_df, baseline_point, max_roi_point, diminishing_return_point, saturation_point, output_filename, kpi_name="KPIs"):
-    """Generates and saves the comprehensive investment response curve chart with all four strategic points."""
-    print(f"\n--- Generating comprehensive curve chart and saving to {output_filename} ---")
+def save_opportunity_curve_plot(response_curve_df, baseline_point, max_roi_point, diminishing_return_point, saturation_point, output_path, kpi_name="KPIs", event_point=None, current_point=None):
+    """Generates and saves the comprehensive investment response curve chart with all strategic points."""
+    print(f"\n--- Generating comprehensive curve chart and saving to {output_path} ---")
     try:
         plt.style.use('seaborn-v0_8-whitegrid')
-        fig, ax = plt.subplots(figsize=(14, 8))
+        fig, ax = plt.subplots(figsize=(12, 7))
 
-        # Plot the full response curve
-        ax.plot(response_curve_df['Daily_Investment'], response_curve_df['Projected_Total_KPIs'], label='Curva de Resposta Preditiva', color='#4285F4', zorder=1)
+        # Formatters for axes
+        ax.xaxis.set_major_formatter(FuncFormatter(lambda x, p: f'R${x/1000:.0f}k'))
+        ax.yaxis.set_major_formatter(FuncFormatter(lambda x, p: f'{x/1000:.0f}k'))
 
-        # --- START MODIFICATION: Use dynamic labels and handle optional points ---
+        # --- Plotting Logic ---
+        # Plot the full response curve on a MONTHLY investment scale
+        ax.plot(response_curve_df['Daily_Investment'] * 30.4, response_curve_df['Projected_Total_KPIs'], label='Curva de Resposta Preditiva', color='#4285F4', zorder=1)
+
+        # --- START MODIFICATION: Rename baseline and add new points ---
+        if baseline_point:
+            baseline_point['Scenario'] = 'Cenário Atual (Média 90d)' # Rename for clarity
+
         points_to_plot = [
             (baseline_point, 'gray', 'o'),
+            (event_point, 'orange', 'D'), # Diamond for Event Scenario
+            (current_point, 'blue', 's'), # Square for Current Scenario
             (max_roi_point, 'green', 'o'),
             (diminishing_return_point, 'red', '*'),
-            (saturation_point, 'purple', 'X') # This can be None
+            (saturation_point, 'purple', 'X')
         ]
-
-        for point_data, color, marker in points_to_plot:
-            if point_data is None: 
-                continue # Skip plotting if the point is None
-            
-            label = point_data.get('Scenario', 'Ponto Estratégico') # Use dynamic label
-            inv = point_data['Daily_Investment']
-            kpi = point_data['Projected_Total_KPIs']
-            
-            z = 3 if marker == '*' else 2
-            ax.plot(inv, kpi, marker, color=color, markersize=12 if marker != '*' else 15, label=label, zorder=z, markeredgecolor='white', markeredgewidth=1.5)
-            
-            vertical_offset = response_curve_df['Projected_Total_KPIs'].max() * 0.05
-            ax.annotate(f"{label}\nR${inv*30.4/1000:.1f}k",
-                        xy=(inv, kpi),
-                        xytext=(inv, kpi + vertical_offset),
-                        ha='center', va='bottom', fontsize=10, weight='bold',
-                        arrowprops=dict(arrowstyle="->", connectionstyle="arc3,rad=0.1", color='black'))
         # --- END MODIFICATION ---
 
+        # --- START MODIFICATION: Dynamic X-axis limit ---
+        max_investment_point = 0
+        valid_points = [p[0] for p in points_to_plot if p[0] is not None and 'Daily_Investment' in p[0]]
+        if valid_points:
+            max_investment_point = max(p['Daily_Investment'] for p in valid_points)
+        
+        # Set x-limit to 2.1x the furthest point to give some space
+        if max_investment_point > 0:
+            ax.set_xlim(0, max_investment_point * 30.4 * 2.1)
+        # --- END MODIFICATION ---
+
+        for point_data, color, marker in points_to_plot:
+            if point_data is None:
+                continue
+
+            label = point_data.get('Scenario', 'Ponto Estratégico')
+            daily_inv = point_data['Daily_Investment']
+            monthly_inv = daily_inv * 30.4  # Convert to monthly for plotting
+            kpi = point_data['Projected_Total_KPIs']
+
+            z = 3 if marker == '*' else 2
+            ax.plot(monthly_inv, kpi, marker, color=color, markersize=12 if marker not in ['*', 'D', 's'] else 15, label=label, zorder=z, markeredgecolor='white', markeredgewidth=1.5)
+
+            vertical_offset = response_curve_df['Projected_Total_KPIs'].max() * 0.05
+            ax.annotate(f"{label}\nR${monthly_inv/1000:.1f}k",
+                        xy=(monthly_inv, kpi),
+                        xytext=(monthly_inv, kpi + vertical_offset),
+                        ha='center', va='bottom', fontsize=10, weight='bold',
+                        arrowprops=dict(arrowstyle="->", connectionstyle="arc3,rad=0.1", color='black'))
+
         ax.set_title('Curva de Resposta: Cenários Estratégicos de Investimento', fontsize=16, weight='bold')
-        ax.set_xlabel('Investimento Diário (R$)', fontsize=12)
-        ax.set_ylabel(f'Projeção Diária de {kpi_name}', fontsize=12)
+        ax.set_xlabel('Investimento Mensal (R$)', fontsize=12)
+        ax.set_ylabel(f'{kpi_name} Projetado', fontsize=12)
+        ax.legend(loc='lower right')
         ax.grid(True, which='both', linestyle='--', linewidth=0.5)
-        ax.legend(fontsize=12)
-
-        ax.xaxis.set_major_formatter(mtick.StrMethodFormatter('R${x:,.0f}'))
-        ax.yaxis.set_major_formatter(mtick.StrMethodFormatter('{x:,.0f}'))
-
         plt.tight_layout()
-        plt.savefig(output_filename)
+        plt.savefig(output_path, dpi=300)
         plt.close(fig)
         print(f"   - ✅ Chart saved successfully.")
+
     except Exception as e:
+        print(f"❌ An error occurred while generating the opportunity curve chart: {e}")
         import traceback
-        print(f"   - ❌ ERROR: Could not generate sweet spot chart. Details: {e}")
         traceback.print_exc()
-
-        plt.tight_layout()
-        plt.savefig(output_filename)
-        plt.close(fig)
-        print(f"   - ✅ Chart saved successfully.")
-    except Exception as e:
-        print(f"   - ❌ ERROR: Could not generate sweet spot chart. Details: {e}")

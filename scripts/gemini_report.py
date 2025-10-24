@@ -212,23 +212,27 @@ def generate_html_report(gemini_client, results_data, config, image_paths, outpu
     scenarios_table_html = ""
     if projection_df is not None and not projection_df.empty:
         if avg_ticket > 0:
-            header = "<th>Receita Projetada</th><th>ROI Marginal</th><th>Investimento Incremental</th><th>Receita Incremental</th>"
+            header = "<th>Cenário</th><th>Investimento Mensal</th><th>Receita Projetada</th><th>ROI Marginal</th><th>Investimento Incremental</th><th>Receita Incremental</th>"
             row_template = (
+                "<td>{scenario}</td>"
+                "<td>{inv_monthly}</td>"
                 "<td>{proj_rev}</td>"
                 "<td>{roi:.1f}</td>"
                 "<td>{inc_inv}</td>"
                 "<td>{inc_rev}</td>"
             )
         else:
-            header = "<th>Pedidos Projetados</th><th>CPA Incremental</th><th>Investimento Incremental</th><th>Pedidos Incrementais</th>"
+            header = "<th>Cenário</th><th>Investimento Mensal</th><th>Pedidos Projetados</th><th>CPA Incremental</th><th>Investimento Incremental</th><th>Pedidos Incrementais</th>"
             row_template = (
+                "<td>{scenario}</td>"
+                "<td>{inv_monthly}</td>"
                 "<td>{proj_orders:,.0f}</td>"
                 "<td>{cpa}</td>"
                 "<td>{inc_inv}</td>"
                 "<td>{inc_orders:,.0f}</td>"
             )
 
-        scenarios_table_html = f'<table class="scenarios-table"><tr><th>Investimento Mensal</th>{header}</tr>'
+        scenarios_table_html = f'<table class="scenarios-table"><tr>{header}</tr>'
         
         for _, row in projection_df.iterrows():
             inc_investment = row['Incremental_Investment'] * 30
@@ -236,6 +240,8 @@ def generate_html_report(gemini_client, results_data, config, image_paths, outpu
             
             if avg_ticket > 0:
                 formatted_row = row_template.format(
+                    scenario=row['Scenario'],
+                    inv_monthly=format_number(row['Daily_Investment'] * 30, currency=True),
                     proj_rev=format_number(row['Projected_Revenue'] * 30, currency=True),
                     roi=row['Incremental_ROI'],
                     inc_inv=format_number(inc_investment, currency=True),
@@ -245,13 +251,15 @@ def generate_html_report(gemini_client, results_data, config, image_paths, outpu
                 # 'Projected_Revenue' now holds the number of orders
                 cpa = format_number(inc_investment / inc_revenue, currency=True) if inc_revenue > 0 else "N/A"
                 formatted_row = row_template.format(
+                    scenario=row['Scenario'],
+                    inv_monthly=format_number(row['Daily_Investment'] * 30, currency=True),
                     proj_orders=row['Projected_Revenue'] * 30,
                     cpa=cpa,
                     inc_inv=format_number(inc_investment, currency=True),
                     inc_orders=inc_revenue 
                 )
             
-            scenarios_table_html += f"<tr><td>{format_number(row['Daily_Investment'] * 30, currency=True)}</td>{formatted_row}</tr>"
+            scenarios_table_html += f"<tr>{formatted_row}</tr>"
         scenarios_table_html += "</table>"
     # --- END DYNAMIC LOGIC ---
 

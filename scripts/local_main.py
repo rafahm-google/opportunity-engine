@@ -15,6 +15,7 @@ import json
 import re
 import traceback
 import pandas as pd
+import numpy as np
 from datetime import timedelta
 from dotenv import load_dotenv
 
@@ -29,14 +30,12 @@ import gemini_report
 def main(config):
     """Main execution block for the script."""
     
-    # --- START MODIFICATION: Load API key from .env ---
     load_dotenv()
     api_key = os.getenv("GEMINI_API_KEY")
     if not api_key:
         print("❌ ERROR: GEMINI_API_KEY not found in your .env file.")
         return
     config['gemini_api_key'] = api_key
-    # --- END MODIFICATION ---
 
     gemini_client = google_api.authenticate_gemini(config['gemini_api_key'])
     if not gemini_client:
@@ -50,28 +49,9 @@ def main(config):
         performance_data = pd.read_csv(config['performance_file_path'])
         generic_trends_data = pd.read_csv(config['generic_trends_file_path'])
 
-        if investment_data.empty or performance_data.empty or generic_trends_data.empty:
-            raise ValueError("Failed to read data from one or more local CSVs.")
-
         raw_investment_df = investment_data.copy()
         raw_kpi_df = performance_data.copy()
-        generic_trends_df = generic_trends_data.copy()
-
-        def clean_and_prepare_trends(df, prefix):
-            df.rename(columns={df.columns[0]: 'Date'}, inplace=True)
-            df['Date'] = pd.to_datetime(df['Date'])
-            relevant_cols = {'User Searches': f'{prefix}_searches', 'Impressions': f'{prefix}_impressions', 'Clicks': f'{prefix}_clicks', 'Spend': f'{prefix}_spend'}
-            cols_to_rename = {k: v for k, v in relevant_cols.items() if k in df.columns}
-            df_cleaned = df[['Date'] + list(cols_to_rename.keys())].copy()
-            df_cleaned.rename(columns=cols_to_rename, inplace=True)
-            for col in df_cleaned.columns:
-                if col != 'Date':
-                    df_cleaned[col] = pd.to_numeric(df_cleaned[col], errors='coerce').fillna(0)
-            return df_cleaned
-
-        generic_trends_cleaned_df = clean_and_prepare_trends(generic_trends_df, 'generic')
-        market_trends_df = generic_trends_cleaned_df.copy()
-
+        # Correctly rename the date column before validation
         raw_kpi_df.rename(columns={raw_kpi_df.columns[0]: 'Date'}, inplace=True)
         
         kpi_col = config.get('performance_kpi_column', 'Sessions')
@@ -87,60 +67,42 @@ def main(config):
         daily_investment_df['investment'] = pd.to_numeric(daily_investment_df['investment'].astype(str).str.replace('[$,]', '', regex=True), errors='coerce').fillna(0)
 
         kpi_df = raw_kpi_df.copy()
+        kpi_df.rename(columns={kpi_df.columns[0]: 'Date'}, inplace=True)
         kpi_df['Date'] = pd.to_datetime(kpi_df['Date'])
-        kpi_col = config.get('performance_kpi_column', 'Sessions')
         if kpi_col not in kpi_df.columns:
             raise ValueError(f"Performance KPI column '{kpi_col}' not found in performance data file.")
         kpi_df[kpi_col] = pd.to_numeric(kpi_df[kpi_col].astype(str).str.replace(',', '', regex=True), errors='coerce').fillna(0)
         if kpi_col != 'Sessions':
             kpi_df.rename(columns={kpi_col: 'Sessions'}, inplace=True)
 
-        market_analysis_df = kpi_df.rename(columns={'Sessions': config['advertiser_name']})
-        market_analysis_df[config['advertiser_name']] = pd.to_numeric(market_analysis_df[config['advertiser_name']], errors='coerce').fillna(0)
-        
-        # --- START MODIFICATION ---
-        # Instead of summing all columns, select only 'Ad Opportunities' for the generic trend
         trends_df = pd.DataFrame({
-            'Date': generic_trends_df[generic_trends_df.columns[0]], 
-            'Generic Searches': generic_trends_df['Ad Opportunities']
+            'Date': pd.to_datetime(generic_trends_data[generic_trends_data.columns[0]]), 
+            'Generic Searches': generic_trends_data['Ad Opportunities']
         })
-        # --- END MODIFICATION ---
-
-        trends_df['Date'] = pd.to_datetime(trends_df['Date'])
-        market_analysis_df = pd.merge(market_analysis_df, trends_df, on='Date', how='left').fillna(0)
+        market_analysis_df = pd.merge(kpi_df.rename(columns={'Sessions': config['advertiser_name']}), trends_df, on='Date', how='left').fillna(0)
 
         increase_ratio = 1 + (config['increase_threshold_percent'] / 100)
         decrease_ratio = 1 - (config['decrease_threshold_percent'] / 100)
 
-        # This function now generates 'detected_events.csv' and returns a full event map.
         event_map_df, _, _ = analysis.find_events(
-            daily_investment_df, 
-            config['advertiser_name'], 
-            increase_ratio, 
-            decrease_ratio, 
-            config['post_event_days'],
-            config.get('pre_selection_candidate_pool_size', 30)
+            daily_investment_df, config['advertiser_name'], increase_ratio, 
+            decrease_ratio, config['post_event_days']
         )
 
         if event_map_df is None or event_map_df.empty:
-            print("\n🏁 Analysis complete: No significant events were detected across any products.")
+            print("\n🏁 Analysis complete: No significant events were detected.")
             return
 
-        # Filter the event map if a product_group_filter is provided in the config.
         product_filter = config.get('product_group_filter')
         if product_filter:
-            print(f"\nℹ️  Filtering event map for specified product groups: {product_filter}")
             filtered_events_df = event_map_df[event_map_df['ad_product'].isin(product_filter)].copy()
-
-            if filtered_events_df.empty:
-                print(f"\n🏁 Analysis complete: No significant events were found for the products: {product_filter}.")
-                return
         else:
-            print("\nℹ️  No `product_group_filter` specified. Analyzing all detected events.")
             filtered_events_df = event_map_df.copy()
 
-        # New: Format the filtered events into the list the script expects
-        print(f"   - Found {len(filtered_events_df)} events matching the filter criteria.")
+        if filtered_events_df.empty:
+            print(f"\n🏁 Analysis complete: No events found for the specified products.")
+            return
+
         candidate_events_df = pd.DataFrame([{
             'event_id': f"{config['advertiser_name']}_{row['ad_product'].replace(' ','_')}_{pd.to_datetime(row['date']).date()}",
             'start_date': (pd.to_datetime(row['date']) - timedelta(days=365)).strftime('%Y-%m-%d'),
@@ -150,29 +112,24 @@ def main(config):
         } for _, row in filtered_events_df.iterrows()])
 
         if args.min_intervention_date:
-            min_date = pd.to_datetime(args.min_intervention_date)
-            candidate_events_df['intervention_date'] = pd.to_datetime(candidate_events_df['intervention_date'])
-            candidate_events_df = candidate_events_df[candidate_events_df['intervention_date'] >= min_date]
-            if candidate_events_df.empty:
-                print(f"\n🏁 Analysis complete: No significant events found after {args.min_intervention_date}.")
-                return
+            candidate_events_df = candidate_events_df[pd.to_datetime(candidate_events_df['intervention_date']) >= pd.to_datetime(args.min_intervention_date)]
 
-        print(f"\n" + "="*50 + f"\n🔬 Analyzing {len(candidate_events_df)} candidates to find the most impactful events...\n" + "="*50)
+        if candidate_events_df.empty:
+            print(f"\n🏁 Analysis complete: No events found after the specified min_intervention_date.")
+            return
+
+        print(f"\n" + "="*50 + f"\n🔬 Analyzing {len(candidate_events_df)} candidates...\n" + "="*50)
         analyzed_events = []
 
         for index, event in candidate_events_df.iterrows():
-
             pre_period = [event['start_date'], (pd.to_datetime(event['intervention_date']) - timedelta(days=1)).strftime('%Y-%m-%d')]
             post_period = [event['intervention_date'], event['end_date']]
 
-            if kpi_df[(kpi_df['Date'] >= pd.to_datetime(pre_period[0])) & (kpi_df['Date'] <= pd.to_datetime(pre_period[1]))].empty or \
-               kpi_df[(kpi_df['Date'] >= pd.to_datetime(post_period[0])) & (kpi_df['Date'] <= pd.to_datetime(post_period[1]))].empty:
-                print(f"\nSKIPPING Event for {event['product_group']} on {event['intervention_date']}: Not enough historical data.")
-                continue
-
             print(f"\n" + "-"*50 + f"\n▶ Analyzing Event: {event['product_group']} on {event['intervention_date']}")
             
-            results_data, line_df, inv_bar_df, sessions_bar_df, accuracy_df, best_alpha, best_k, best_s, max_kpi_scaler, hist_avg_inv, hist_avg_kpi = analysis.run_causal_impact_analysis(kpi_df, daily_investment_df, market_trends_df, pre_period, post_period, event['event_id'], event['product_group'])
+            results_data, line_df, inv_bar_df, sessions_bar_df, accuracy_df = analysis.run_causal_impact_analysis(
+                kpi_df, daily_investment_df, trends_df, pre_period, post_period, event['event_id'], event['product_group']
+            )
 
             if not results_data:
                 print("   - ❌ FAILED: Causal impact analysis could not be completed.")
@@ -184,34 +141,21 @@ def main(config):
 
             if is_significant and is_logical:
                 print("   - ✅ PASSED: Event is statistically significant and logical.")
-                analyzed_events.append({
-                    'event': event,
-                    'results_data': results_data,
-                    'line_df': line_df,
-                    'inv_bar_df': inv_bar_df,
-                    'sessions_bar_df': sessions_bar_df,
-                    'accuracy_df': accuracy_df,
-                    'best_alpha': best_alpha, 'best_k': best_k, 'best_s': best_s, 'max_kpi_scaler': max_kpi_scaler,
-                    'hist_avg_inv': hist_avg_inv, 'hist_avg_kpi': hist_avg_kpi
-                })
+                analyzed_events.append({'event': event, 'results_data': results_data, 'line_df': line_df, 'inv_bar_df': inv_bar_df, 'sessions_bar_df': sessions_bar_df, 'accuracy_df': accuracy_df})
             else:
                 print("   - ❌ SKIPPED: Event did not meet validation criteria.")
 
         if not analyzed_events:
-            print("\n🏁 Analysis complete: No valid, impactful events were found after full analysis.")
+            print("\n🏁 Analysis complete: No valid, impactful events were found.")
             return
 
         analyzed_events.sort(key=lambda x: abs(x['results_data']['absolute_lift']), reverse=True)
+        top_events_to_report = analyzed_events[:config.get('max_events_to_analyze', 5)]
         
-        max_to_report = config.get('max_events_to_analyze', 5)
-        top_events_to_report = analyzed_events[:max_to_report]
-        
-        print(f"\n" + "="*50 + f"\n🏆 Top {len(top_events_to_report)} Most Impactful Events Selected. Generating Reports...\n" + "="*50)
+        print(f"\n" + "="*50 + f"\n🏆 Top {len(top_events_to_report)} Events Selected. Generating Reports...\n" + "="*50)
         
         successful_reports = []
         base_output_dir = os.path.join(os.getcwd(), config['output_directory'])
-
-        # Construct advertiser-specific CSV path
         advertiser_name = config.get('advertiser_name', 'default_advertiser')
         csv_output_filename = os.path.join(base_output_dir, f"{advertiser_name}_analysis_results.csv")
 
@@ -225,13 +169,10 @@ def main(config):
             event_output_dir = os.path.join(base_output_dir, config['advertiser_name'], pd.to_datetime(event['intervention_date']).strftime('%Y-%m-%d'))
             os.makedirs(event_output_dir, exist_ok=True)
 
-            full_response_curve_df, scenarios_df, baseline_point, max_roi_point, diminishing_return_point, saturation_point = analysis.run_opportunity_projection(
-                analyzed_event['best_alpha'], analyzed_event['best_k'], analyzed_event['best_s'], 
-                analyzed_event['max_kpi_scaler'], daily_investment_df, config,
-                analyzed_event['hist_avg_inv'], analyzed_event['hist_avg_kpi']
+            full_response_curve_df, scenarios_df, baseline_point, max_roi_point, diminishing_return_point, saturation_point, projection_model_params = analysis.run_opportunity_projection(
+                kpi_df, daily_investment_df, trends_df, product_group_for_report, config
             )
             
-            # The primary recommendation is the max ROI point
             if max_roi_point is not None:
                 results_data['forecast'] = max_roi_point
 
@@ -239,6 +180,19 @@ def main(config):
                 safe_pg_name = re.sub(r'[^\w-]', '_', product_group_for_report)
                 file_base_name = f"{config['advertiser_name']}_{safe_pg_name}_{event['intervention_date']}"
                 
+                def get_projected_kpi(investment, alpha, k, s, scaler):
+                    if alpha >= 1: alpha = 0.99
+                    adstocked = investment / (1 - alpha)
+                    saturated = analysis.hill_transform(adstocked, k, s)
+                    return saturated * scaler
+
+                event_investment = results_data.get('event_period_avg_investment', 0)
+                event_point = {
+                    'Scenario': 'Cenário do Evento',
+                    'Daily_Investment': event_investment,
+                    'Projected_Total_KPIs': get_projected_kpi(event_investment, **projection_model_params)
+                }
+
                 image_paths = {}
                 image_paths['accuracy'] = os.path.join(event_output_dir, f"accuracy_plot_{file_base_name}.png")
                 presentation.save_accuracy_plot(results_data, analyzed_event['accuracy_df'], image_paths['accuracy'], kpi_name=kpi_col)
@@ -261,7 +215,9 @@ def main(config):
                         diminishing_return_point,
                         saturation_point,
                         image_paths['opportunity'], 
-                        kpi_name=kpi_col
+                        kpi_name=kpi_col,
+                        event_point=event_point,
+                        current_point=None
                     )
 
                 html_report_filename = os.path.join(event_output_dir, f"gemini_report_{file_base_name}.html")
@@ -277,11 +233,10 @@ def main(config):
 
         if successful_reports:
             print("\n\n" + "="*50 + "\n✅ All tasks complete.\n" + "="*50)
-            print(f"   {len(successful_reports)} Gemini HTML report(s) were successfully generated:")
             for url in successful_reports:
                 print(f"   - {url}")
         else:
-            print("\n\n🏁 Analysis complete: No events met all the required criteria for final reporting.")
+            print("\n\n🏁 Analysis complete: No events met all criteria for reporting.")
 
     except FileNotFoundError as e:
         print(f"❌ ERROR: Input file not found. Please check the path in your config file. Details: {e}")

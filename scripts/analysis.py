@@ -75,7 +75,6 @@ def find_events(df, company_name, increase_ratio, decrease_ratio, post_event_day
 
         df = df.rename(columns={'Product Group': 'product_group', 'Date': 'dates'})
 
-        # Step 1: Find all individual significant events
         all_individual_events = []
         product_groups = df['product_group'].unique()
         print(f"   - Analyzing {len(product_groups)} unique ad products for significant changes.")
@@ -113,9 +112,6 @@ def find_events(df, company_name, increase_ratio, decrease_ratio, post_event_day
             return pd.DataFrame(), None, None
 
         individual_events_df = pd.DataFrame(all_individual_events)
-
-        # Step 2: Group overlapping events by week
-        print(f"   - Found {len(individual_events_df)} individual changes. Now grouping by week.")
         individual_events_df['date'] = pd.to_datetime(individual_events_df['date'])
         individual_events_df['event_week'] = individual_events_df['date'].dt.to_period('W').dt.start_time
 
@@ -124,8 +120,6 @@ def find_events(df, company_name, increase_ratio, decrease_ratio, post_event_day
             product_groups = sorted(list(group['ad_product'].unique()))
             consolidated_product_name = ', '.join(product_groups)
             
-            # The percentage change will be recalculated later based on total investment.
-            # Here, we just use the first one as a placeholder.
             grouped_events.append({
                 'date': week.strftime('%Y-%m-%d'),
                 'ad_product': consolidated_product_name,
@@ -133,7 +127,6 @@ def find_events(df, company_name, increase_ratio, decrease_ratio, post_event_day
             })
         
         if not grouped_events:
-            print("   - No events left after grouping.")
             return pd.DataFrame(), None, None
 
         event_map_df = pd.DataFrame(grouped_events).sort_values(by='date')
@@ -156,11 +149,8 @@ def run_causal_impact_analysis(kpi_df, daily_investment_df, market_trends_df, pr
         if data['Sessions'].empty:
             raise ValueError("The 'Sessions' column contains no valid numeric data.")
 
-        # --- Corrected Logic based on Sandbox ---
         investment_pivot_df = daily_investment_df.pivot_table(
-            index='Date', 
-            columns='Product Group', 
-            values='investment'
+            index='Date', columns='Product Group', values='investment'
         ).fillna(0)
 
         model_data = pd.merge(data[['Date', 'Sessions']], investment_pivot_df, on='Date', how='inner')
@@ -170,15 +160,11 @@ def run_causal_impact_analysis(kpi_df, daily_investment_df, market_trends_df, pr
         model_data.fillna(0, inplace=True)
         model_data = create_calendar_features(model_data)
 
-        print("   - Applying Ad-stock and Saturation transformations to all channels...")
-        
         event_channels = [ch.strip() for ch in product_group.split(',')]
-        # Define the event investment series from the merged data for later use
         event_investment_series = model_data[event_channels].sum(axis=1)
 
         pre_period_data = model_data.loc[pre_period[0]:pre_period[1]]
         
-        # Ensure event channels exist in the dataframe before summing
         valid_event_channels = [ch for ch in event_channels if ch in pre_period_data.columns]
         if not valid_event_channels:
             raise ValueError(f"None of the event channels {event_channels} were found in the model data columns.")
@@ -187,7 +173,7 @@ def run_causal_impact_analysis(kpi_df, daily_investment_df, market_trends_df, pr
         possible_alphas = np.arange(0.1, 1.0, 0.1)
         correlations = {alpha: np.corrcoef(geometric_decay(pre_period_event_investment, alpha), pre_period_data['Sessions'])[0, 1] for alpha in possible_alphas}
         best_alpha = max(correlations, key=correlations.get)
-        print(f"   - Best ad-stock alpha found: {best_alpha:.2f}")
+        print(f"   - Best ad-stock alpha found for causal model: {best_alpha:.2f}")
 
         pre_period_adstocked_investment = pd.Series(
             geometric_decay(pre_period_event_investment, best_alpha),
@@ -202,20 +188,14 @@ def run_causal_impact_analysis(kpi_df, daily_investment_df, market_trends_df, pr
             median_investment = np.median(pre_period_adstocked_investment)
             if median_investment == 0: median_investment = 1
 
-            # --- START FIX: Add bounds to curve_fit to prevent descending curves ---
             popt, _ = curve_fit(
-                hill_for_fit, 
-                pre_period_adstocked_investment, 
-                pre_period_data['Sessions'], 
-                p0=[2, median_investment], 
-                bounds=(0, np.inf), # Force k and s to be non-negative
-                maxfev=5000
+                hill_for_fit, pre_period_adstocked_investment, pre_period_data['Sessions'], 
+                p0=[2, median_investment], bounds=(0, np.inf), maxfev=5000
             )
-            # --- END FIX ---
             best_k, best_s = popt
-            print(f"   - Best saturation params found: k={best_k:.2f}, s={best_s:.2f}")
+            print(f"   - Best saturation params found for causal model: k={best_k:.2f}, s={best_s:.2f}")
         except (RuntimeError, ValueError):
-            print("   - ⚠️ WARNING: Could not find optimal saturation curve. Proceeding with ad-stock only.")
+            print("   - ⚠️ WARNING: Could not find optimal saturation curve for causal model.")
 
         transformed_features = {}
         for channel in investment_pivot_df.columns:
@@ -226,206 +206,175 @@ def run_causal_impact_analysis(kpi_df, daily_investment_df, market_trends_df, pr
         
         transformed_df = pd.DataFrame(transformed_features, index=model_data.index)
         model_data = pd.concat([model_data, transformed_df], axis=1)
-        # --- End New Logic ---
 
         pre_data_for_model = model_data.loc[pre_period[0]:pre_period[1]].copy()
         post_data = model_data.loc[post_period[0]:post_period[1]].copy()
         if post_data.empty or pre_data_for_model.empty:
-            print("   - ⚠️ WARNING: Not enough data in the pre- or post-event period to run analysis. Skipping.")
-            return None, None, None, None, None, None, None, None, None
+            return None, None, None, None, None
 
-        print("   - Running automated feature selection...")
-        # Pool of potential features now includes ALL transformed channels
-        potential_exog_vars = list(transformed_features.keys()) + [col for col in model_data.columns if col.startswith('generic_') or col.startswith('day_') or col in ['is_weekend', 'is_payday_period', 'is_holiday']]
+        print("   - Running automated feature selection for causal model...")
+        potential_exog_vars = list(transformed_features.keys()) + [col for col in model_data.columns if 'generic' in col or 'day_' in col or col in ['is_weekend', 'is_payday_period', 'is_holiday']]
         
-        for col in potential_exog_vars:
-            pre_data_for_model[col] = pd.to_numeric(pre_data_for_model[col], errors='coerce').fillna(0)
-            post_data[col] = pd.to_numeric(post_data[col], errors='coerce').fillna(0)
-
         selector = VarianceThreshold(threshold=0.01)
-        try:
-            selector.fit(pre_data_for_model[potential_exog_vars])
-            varianced_features = [var for i, var in enumerate(potential_exog_vars) if selector.get_support()[i]]
-        except ValueError:
-            varianced_features = list(transformed_features.keys())
+        selector.fit(pre_data_for_model[potential_exog_vars])
+        varianced_features = [var for i, var in enumerate(potential_exog_vars) if selector.get_support()[i]]
 
         if not varianced_features:
-            print("   - ⚠️ WARNING: No features with sufficient variance found.")
             selected_features = list(transformed_features.keys())
         else:
             lasso = LassoCV(cv=5, random_state=0, max_iter=10000).fit(pre_data_for_model[varianced_features], pre_data_for_model['Sessions'])
             selected_features = [var for i, var in enumerate(varianced_features) if lasso.coef_[i] != 0]
             if not selected_features:
-                print("   - ⚠️ WARNING: LassoCV eliminated all features. Using all transformed channels as features.")
                 selected_features = list(transformed_features.keys())
 
-        print(f"   - Selected features for model: {selected_features}")
+        print(f"   - Selected features for causal model: {selected_features}")
         model = sm.tsa.UnobservedComponents(pre_data_for_model['Sessions'], 'llevel', trend=True, seasonal=7, exog=pre_data_for_model[selected_features]).fit(disp=False)
+        
         in_sample_preds = model.get_prediction(exog=pre_data_for_model[selected_features]).predicted_mean
         mae = np.mean(np.abs(pre_data_for_model['Sessions'] - in_sample_preds))
-        avg_pre_period_sessions = pre_data_for_model['Sessions'].mean()
-        mape = (mae / avg_pre_period_sessions) * 100 if avg_pre_period_sessions > 0 else 0
+        mape = (mae / pre_data_for_model['Sessions'].mean()) * 100 if pre_data_for_model['Sessions'].mean() > 0 else 0
         ss_res = np.sum((pre_data_for_model['Sessions'] - in_sample_preds)**2)
         ss_tot = np.sum((pre_data_for_model['Sessions'] - np.mean(pre_data_for_model['Sessions']))**2)
         r_squared = 1 - (ss_res / ss_tot) if ss_tot > 0 else 0
         print(f"   - Causal model R-squared (in-sample): {r_squared:.4f}")
+        
         accuracy_df = pre_data_for_model.copy()
         accuracy_df['Predicted'] = in_sample_preds.shift(-1)
         accuracy_df = accuracy_df[['Sessions', 'Predicted']].reset_index().tail(90)
+        
         forecast = model.get_forecast(steps=len(post_data), exog=post_data[selected_features])
         predicted_mean = forecast.predicted_mean
+        
         impact_df = post_data[['Sessions']].copy()
         impact_df['predicted'] = predicted_mean.values
         impact_df['impact'] = impact_df['Sessions'] - impact_df['predicted']
         impact_df.fillna(0, inplace=True)
-        impact = impact_df['impact']
-        _, p_value = stats.ttest_1samp(impact, 0)
-        abs_lift = impact.sum()
+        
+        _, p_value = stats.ttest_1samp(impact_df['impact'], 0)
+        abs_lift = impact_df['impact'].sum()
         rel_lift = (abs_lift / predicted_mean.sum()) * 100 if predicted_mean.sum() != 0 else 0
         
         event_investment_agg = event_investment_series.reset_index().rename(columns={0: 'investment'})
         total_investment_post_period = event_investment_agg[event_investment_agg['Date'].isin(post_data.index)]['investment'].sum()
+        event_period_avg_investment = event_investment_agg[event_investment_agg['Date'].isin(post_data.index)]['investment'].mean()
+        
         like_for_like_pre_period_end = pd.to_datetime(post_period[0]) - timedelta(days=1)
         like_for_like_pre_period_start = like_for_like_pre_period_end - timedelta(days=len(post_data) - 1)
-        pre_period_investment_df = event_investment_agg[(event_investment_agg['Date'] >= like_for_like_pre_period_start) & (event_investment_agg['Date'] <= like_for_like_pre_period_end)]
-        total_investment_pre_period = pre_period_investment_df['investment'].sum()
-
-        historical_avg_investment = pre_period_investment_df['investment'].mean()
-
-        # Calculate the baseline (historical) saturated response
-        historical_adstocked_inv = historical_avg_investment / (1 - best_alpha)
-        historical_saturated_response = hill_transform(historical_adstocked_inv, best_k, best_s)
-
-        pre_period_kpi_for_scaler = pre_data_for_model['Sessions']
-        max_kpi_scaler = pre_period_kpi_for_scaler.max()
-        historical_avg_kpi = historical_saturated_response * max_kpi_scaler
+        total_investment_pre_period = event_investment_agg[(event_investment_agg['Date'] >= like_for_like_pre_period_start) & (event_investment_agg['Date'] <= like_for_like_pre_period_end)]['investment'].sum()
 
         investment_change_pct = ((total_investment_post_period - total_investment_pre_period) / total_investment_pre_period) * 100 if total_investment_pre_period > 0 else 0
         cpa_incremental = total_investment_post_period / abs_lift if abs_lift != 0 else 0
+        
         chart_start = pd.to_datetime(post_period[0]) - timedelta(days=7)
         chart_end = pd.to_datetime(post_period[1]) + timedelta(days=7)
-        sessions_for_chart = model_data.loc[chart_start:chart_end, ['Sessions']].reset_index()
-        investment_for_chart = event_investment_agg[(event_investment_agg['Date'] >= chart_start) & (event_investment_agg['Date'] <= chart_end)]
-        actuals_for_chart = pd.merge(sessions_for_chart, investment_for_chart, on='Date', how='left').fillna(0)
+        actuals_for_chart = pd.merge(model_data.loc[chart_start:chart_end, ['Sessions']].reset_index(), event_investment_agg[(event_investment_agg['Date'] >= chart_start) & (event_investment_agg['Date'] <= chart_end)], on='Date', how='left').fillna(0)
         actuals_for_chart.rename(columns={'investment': 'Total_Investment'}, inplace=True)
+        
         forecast_for_chart = pd.DataFrame({'Date': post_data.index, 'Forecasted Sessions': predicted_mean.values})
-        line_chart_df = pd.merge(actuals_for_chart, forecast_for_chart, on='Date', how='left')
-        line_chart_df.rename(columns={'Sessions': 'Actual Sessions', 'Total_Investment': 'Investment'}, inplace=True)
+        line_chart_df = pd.merge(actuals_for_chart, forecast_for_chart, on='Date', how='left').rename(columns={'Sessions': 'Actual Sessions', 'Total_Investment': 'Investment'})
+        
         investment_bar_df = pd.DataFrame({'Period': ['Pre-Event', 'Event'], 'Investment': [total_investment_pre_period, total_investment_post_period]})
-        results_dict = {"start_date": post_period[0], "end_date": post_period[1], "product_group": product_group, "absolute_lift": abs_lift, "relative_lift_pct": rel_lift, "p_value": p_value, "investment_change_pct": investment_change_pct, "cpa_incremental": cpa_incremental, "total_investment_post_period": total_investment_post_period, "total_investment_pre_period": total_investment_pre_period, "mae": mae, "mape": mape, "model_r_squared": r_squared}
         sessions_bar_df = pd.DataFrame({'Category': ['Forecasted Sessions', 'Actual Sessions'], 'Sessions': [predicted_mean.sum(), post_data['Sessions'].sum()]})
-        return results_dict, line_chart_df, investment_bar_df, sessions_bar_df, accuracy_df, best_alpha, best_k, best_s, max_kpi_scaler, historical_avg_investment, historical_avg_kpi
-    except ValueError as e:
-        print(f"❌ Causal impact analysis error: {e}")
-        return None, None, None, None, None, None, None, None, None, None, None
+        
+        results_dict = {"start_date": post_period[0], "end_date": post_period[1], "product_group": product_group, "absolute_lift": abs_lift, "relative_lift_pct": rel_lift, "p_value": p_value, "investment_change_pct": investment_change_pct, "cpa_incremental": cpa_incremental, "total_investment_post_period": total_investment_post_period, "total_investment_pre_period": total_investment_pre_period, "mae": mae, "mape": mape, "model_r_squared": r_squared, "event_period_avg_investment": event_period_avg_investment}
+        
+        return results_dict, line_chart_df, investment_bar_df, sessions_bar_df, accuracy_df
     except Exception as e:
         print(f"❌ An unexpected error occurred during causal impact analysis: {e}")
-        return None, None, None, None, None, None, None, None, None, None, None
+        return None, None, None, None, None
 
-def run_opportunity_projection(best_alpha, best_k, best_s, max_kpi_scaler, daily_investment_df, config, hist_avg_investment, hist_avg_kpi):
-    """Finds the optimal investment sweet spot and calculates financial projections."""
+def _train_response_model(model_data, product_group):
+    """
+    Trains the ad-stock and saturation model using the entire provided dataset.
+    """
+    print("\n" + "="*50 + "\n🔎 Training Response Model for Projection on ALL Historical Data...\n" + "="*50)
+    
+    event_channels = [ch.strip() for ch in product_group.split(',')]
+    valid_event_channels = [ch for ch in event_channels if ch in model_data.columns]
+    if not valid_event_channels:
+        raise ValueError(f"None of the event channels {event_channels} were found in the model data columns.")
+    
+    full_period_investment = model_data[valid_event_channels].sum(axis=1)
+    full_period_kpi = model_data['Sessions']
+
+    possible_alphas = np.arange(0.1, 1.0, 0.1)
+    correlations = {alpha: np.corrcoef(geometric_decay(full_period_investment, alpha), full_period_kpi)[0, 1] for alpha in possible_alphas}
+    best_alpha = max(correlations, key=correlations.get)
+    print(f"   - Best ad-stock alpha (full data): {best_alpha:.2f}")
+
+    adstocked_investment = pd.Series(geometric_decay(full_period_investment, best_alpha), index=model_data.index)
+
+    best_k, best_s = (1, 1)
+    try:
+        def hill_for_fit(x, k, s):
+            return full_period_kpi.max() * hill_transform(x, k, s)
+        
+        median_investment = np.median(adstocked_investment)
+        if median_investment == 0: median_investment = 1
+
+        popt, _ = curve_fit(
+            hill_for_fit, adstocked_investment, full_period_kpi, 
+            p0=[2, median_investment], bounds=(0, np.inf), maxfev=5000
+        )
+        best_k, best_s = popt
+        print(f"   - Best saturation params (full data): k={best_k:.2f}, s={best_s:.2f}")
+    except (RuntimeError, ValueError):
+        print("   - ⚠️ WARNING: Could not find optimal saturation curve for full data. Using defaults.")
+
+    max_kpi_scaler = full_period_kpi.max()
+    hist_avg_investment = model_data.iloc[-90:][valid_event_channels].sum(axis=1).mean()
+    
+    historical_adstocked_inv = hist_avg_investment / (1 - best_alpha)
+    historical_saturated_response = hill_transform(historical_adstocked_inv, best_k, best_s)
+    hist_avg_kpi = historical_saturated_response * max_kpi_scaler
+
+    print("   - ✅ Projection model training on full data complete.")
+    return best_alpha, best_k, best_s, max_kpi_scaler, hist_avg_investment, hist_avg_kpi
+
+def run_opportunity_projection(kpi_df, daily_investment_df, market_trends_df, product_group, config):
+    """
+    Trains a new response model on all data and then finds the optimal investment sweet spot.
+    """
     print("\n" + "="*50 + "\n🎯 Finding the Investment Sweet Spot & Projecting Opportunity...\n" + "="*50)
     
-    # --- START FIX: Define defaults *before* the try block ---
-    # This ensures they are available for the except block.
-    default_max_roi_point = {
-        'Scenario': 'Max Efficiency',
-        'Daily_Investment': 0,
-        'Projected_Total_KPIs': 0,
-        'Incremental_ROI': 0,
-        'Incremental_Revenue': 0,
-        'Incremental_Investment': 0
-    }
-    
-    baseline_point = {
-        'Scenario': 'Baseline',
-        'Daily_Investment': hist_avg_investment,
-        'Projected_Total_KPIs': hist_avg_kpi,
-        'Incremental_ROI': 0
-    }
-    
-    diminishing_return_point = default_max_roi_point.copy()
-    diminishing_return_point['Scenario'] = 'Diminishing Returns'
-
-    empty_response_curve_df = pd.DataFrame(columns=[
-        'Daily_Investment', 'Projected_Total_KPIs', 'Projected_Revenue', 
-        'Incremental_Investment', 'Incremental_Revenue', 'Incremental_ROI'
-    ])
-    # --- END FIX ---
-
     try:
+        investment_pivot_df = daily_investment_df.pivot_table(index='Date', columns='Product Group', values='investment').fillna(0)
+        model_data = pd.merge(kpi_df[['Date', 'Sessions']], investment_pivot_df, on='Date', how='inner')
+        model_data = pd.merge(model_data, market_trends_df, on='Date', how='left')
+        model_data.set_index('Date', inplace=True)
+        model_data.sort_index(inplace=True)
+        model_data.fillna(0, inplace=True)
+
+        best_alpha, best_k, best_s, max_kpi_scaler, hist_avg_investment, hist_avg_kpi = _train_response_model(model_data, product_group)
+        
         max_hist_inv = daily_investment_df['investment'].max()
-        if max_hist_inv == 0: max_hist_inv = 100000 # Fallback
         investment_scenarios = np.linspace(1, max_hist_inv * 2, 200)
         
-        projected_kpis = []
-        for daily_inv in investment_scenarios:
-            adstocked_inv = daily_inv / (1 - best_alpha)
-            saturated_response = hill_transform(adstocked_inv, best_k, best_s)
-            projected_kpi = saturated_response * max_kpi_scaler
-            projected_kpis.append(projected_kpi)
-            
-        response_curve_df = pd.DataFrame({
-            'Daily_Investment': investment_scenarios, 
-            'Projected_Total_KPIs': projected_kpis
-        })
+        projected_kpis = [((hill_transform((inv / (1 - best_alpha)), best_k, best_s)) * max_kpi_scaler) for inv in investment_scenarios]
+        response_curve_df = pd.DataFrame({'Daily_Investment': investment_scenarios, 'Projected_Total_KPIs': projected_kpis})
 
         conversion_rate = config.get('conversion_rate_from_kpi_to_bo', 0)
-        avg_ticket = config.get('average_ticket', config.get('average_ticket_value', 0))
+        avg_ticket = config.get('average_ticket', 0)
 
-        if avg_ticket > 0:
-            response_curve_df['Projected_Revenue'] = response_curve_df['Projected_Total_KPIs'] * conversion_rate * avg_ticket
-        else:
-            response_curve_df['Projected_Revenue'] = response_curve_df['Projected_Total_KPIs'] * conversion_rate
+        response_curve_df['Projected_Revenue'] = response_curve_df['Projected_Total_KPIs'] * conversion_rate * (avg_ticket if avg_ticket > 0 else 1)
         
         baseline_investment = hist_avg_investment
         baseline_kpi = hist_avg_kpi
-        if avg_ticket > 0:
-            baseline_revenue = baseline_kpi * conversion_rate * avg_ticket
-        else:
-            baseline_revenue = baseline_kpi * conversion_rate
+        baseline_revenue = baseline_kpi * conversion_rate * (avg_ticket if avg_ticket > 0 else 1)
         
-        # --- START FIX: Fully populate the baseline_point dictionary ---
-        baseline_point['Daily_Investment'] = baseline_investment
-        baseline_point['Projected_Total_KPIs'] = baseline_kpi
-        baseline_point['Projected_Revenue'] = baseline_revenue
-        baseline_point['Incremental_Investment'] = 0
-        baseline_point['Incremental_Revenue'] = 0
-        baseline_point['Incremental_ROI'] = 0 # ROI is 0 by definition at baseline
-        # --- END FIX ---
+        baseline_point = {'Daily_Investment': baseline_investment, 'Projected_Total_KPIs': baseline_kpi, 'Projected_Revenue': baseline_revenue, 'Incremental_Investment': 0, 'Incremental_Revenue': 0, 'Incremental_ROI': 0}
         
         response_curve_df['Incremental_Investment'] = response_curve_df['Daily_Investment'] - baseline_investment
         response_curve_df['Incremental_Revenue'] = response_curve_df['Projected_Revenue'] - baseline_revenue
-
-        print("--- Debug: response_curve_df before filtering ---")
-        print(response_curve_df.head())
-        print(response_curve_df.tail())
-
         response_curve_df_above_baseline = response_curve_df[response_curve_df['Incremental_Investment'] >= 0].copy()
         response_curve_df_above_baseline['Incremental_ROI'] = (response_curve_df_above_baseline['Incremental_Revenue'] / response_curve_df_above_baseline['Incremental_Investment']).fillna(0)
 
-        print("--- Debug: response_curve_df_above_baseline after filtering and ROI calculation ---")
-        print(response_curve_df_above_baseline.head())
-        print(response_curve_df_above_baseline.tail())
-        print(f"Max Incremental_ROI: {response_curve_df_above_baseline['Incremental_ROI'].max()}")
-        print(f"Min Incremental_ROI: {response_curve_df_above_baseline['Incremental_ROI'].min()}")
-        print(f"Count of positive Incremental_ROI: {(response_curve_df_above_baseline['Incremental_ROI'] > 0).sum()}")
-
-        if response_curve_df_above_baseline.empty:
-            print("     - ⚠️ WARNING: Could not determine a sweet spot. Not enough data points above baseline.")
-            # Your original fix: return a default point
-            scenarios_df = pd.DataFrame([baseline_point, default_max_roi_point, diminishing_return_point])
-            return response_curve_df, scenarios_df, baseline_point, default_max_roi_point, default_max_roi_point
-
-        # Point 1: Baseline (already defined)
         baseline_point['Scenario'] = 'Cenário Atual'
 
-        # Point 2: Maximum Incremental ROI (Max Efficiency)
         max_roi_index = response_curve_df_above_baseline['Incremental_ROI'].idxmax()
         max_roi_point = response_curve_df_above_baseline.loc[max_roi_index].to_dict()
         max_roi_point['Scenario'] = 'Máximo ROI'
 
-        # Point 3: Diminishing Returns (Knee of the curve)
         scaler = MinMaxScaler()
         scaled_points = scaler.fit_transform(response_curve_df[['Daily_Investment', 'Projected_Total_KPIs']])
         line_vec = scaled_points[-1] - scaled_points[0]
@@ -440,38 +389,20 @@ def run_opportunity_projection(best_alpha, best_k, best_s, max_kpi_scaler, daily
         diminishing_return_point['Scenario'] = 'Ponto de Inflexão'
         diminishing_return_point['Incremental_ROI'] = (diminishing_return_point['Incremental_Revenue'] / diminishing_return_point['Incremental_Investment']) if diminishing_return_point['Incremental_Investment'] > 0 else 0
 
-        # --- START MODIFICATION: Hybrid logic for the fourth point ---
-        saturation_point = None # Default to None
-        avg_ticket = config.get('average_ticket', 0)
-
+        saturation_point = None
         if avg_ticket > 0:
-            # For revenue-driven models, find the last point where ROI > 1
             profitable_df = response_curve_df[response_curve_df['Incremental_ROI'] > 1]
             if not profitable_df.empty:
-                max_profitable_index = profitable_df['Daily_Investment'].idxmax()
-                saturation_point = response_curve_df.loc[max_profitable_index].to_dict()
+                saturation_point = response_curve_df.loc[profitable_df['Daily_Investment'].idxmax()].to_dict()
                 saturation_point['Scenario'] = 'Máximo Investimento Lucrativo'
-        # If no avg_ticket, saturation_point remains None, and the inflection point becomes the focus.
-        # --- END MODIFICATION ---
 
-        # Create scenarios_df for the report table, filtering out None
-        scenarios_to_plot = [baseline_point, max_roi_point, diminishing_return_point, saturation_point]
-        scenarios_df = pd.DataFrame([p for p in scenarios_to_plot if p is not None])
+        scenarios_df = pd.DataFrame([p for p in [baseline_point, max_roi_point, diminishing_return_point, saturation_point] if p is not None])
+        model_params = {'alpha': best_alpha, 'k': best_k, 's': best_s, 'scaler': max_kpi_scaler}
 
-        return response_curve_df, scenarios_df, baseline_point, max_roi_point, diminishing_return_point, saturation_point
+        return response_curve_df, scenarios_df, baseline_point, max_roi_point, diminishing_return_point, saturation_point, model_params
 
     except Exception as e:
         import traceback
         print(f"❌ An error occurred in the sweet spot calculation: {e}")
         traceback.print_exc()
-        
-        # --- START APPLIED FIX ---
-        # Return the default, non-None values you intended.
-        # This prevents the downstream crash.
-        print("     - ⚠️ Returning default (empty) projection data to prevent downstream crash.")
-        
-        # Use the defaults defined at the start of the function
-        default_scenarios_df = pd.DataFrame([baseline_point, default_max_roi_point, diminishing_return_point])
-        
-        return empty_response_curve_df, default_scenarios_df, baseline_point, default_max_roi_point, diminishing_return_point, None
-        # --- END APPLIED FIX ---
+        return pd.DataFrame(), pd.DataFrame(), {}, {}, {}, None, {}

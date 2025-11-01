@@ -22,10 +22,8 @@ from dotenv import load_dotenv
 import os
 
 import analysis
-import google_api
 import presentation
 import recommendations
-import gemini_report
 
 
 def _create_presentation_dataframe(causal_results, baseline_point, max_roi_point, diminishing_return_point, accelerated_growth_point, config, post_period, channel_proportions):
@@ -103,18 +101,6 @@ import data_preprocessor
 def main(config):
     """Main execution block for the script."""
     
-    load_dotenv()
-    api_key = os.getenv("GEMINI_API_KEY")
-    if not api_key:
-        print("❌ ERROR: GEMINI_API_KEY not found in your .env file.")
-        return
-    config['gemini_api_key'] = api_key
-
-    gemini_client = google_api.authenticate_gemini(config['gemini_api_key'])
-    if not gemini_client:
-        print("❌ Halting execution due to Gemini authentication failure.")
-        return
-
     try:
         kpi_df, daily_investment_df, trends_df, correlation_matrix = data_preprocessor.load_and_prepare_data(config)
         
@@ -305,14 +291,8 @@ def main(config):
                 csv_filename = os.path.join(event_output_dir, f"{file_base_name}_presentation_data.csv")
                 presentation_df.to_csv(csv_filename, index=False, float_format='%.2f')
                 print(f"   ✅ SUCCESS! Comprehensive data saved to: {csv_filename}")
-
-                html_report_filename = os.path.join(event_output_dir, f"gemini_report_{file_base_name}.html")
-                gemini_report.generate_html_report(gemini_client, results_data, config, image_paths, html_report_filename, market_analysis_df, analyzed_event['line_df'], scenarios_df, csv_output_filename=csv_filename, correlation_matrix=correlation_matrix)
-
                 recommendations.generate_recommendations_file(results_data, scenarios_df, config, event_output_dir)
-
-                successful_reports.append(html_report_filename)
-                print(f"   ✅ SUCCESS! View the Gemini HTML report here: {html_report_filename}")
+                successful_reports.append(csv_filename)
 
             except Exception as e:
                 print(f"❌ Report generation failed for this event: {e}")
@@ -320,9 +300,9 @@ def main(config):
                 continue
 
         if successful_reports:
-            print("\n\n" + "="*50 + "\n✅ All tasks complete.\n" + "="*50)
-            for url in successful_reports:
-                print(f"   - {url}")
+            print("\n\n" + "="*50 + "\n✅ All tasks complete. CSV and chart files generated.\n" + "="*50)
+            for path in successful_reports:
+                print(f"   - {path}")
         else:
             print("\n\n🏁 Analysis complete: No events met all criteria for reporting.")
 

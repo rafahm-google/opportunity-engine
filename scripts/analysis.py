@@ -44,22 +44,7 @@ def create_calendar_features(df):
         df_featured[f'day_{i}'] = (df_featured['dayofweek'] == i).astype(int)
     return df_featured
 
-def validate_input_data(investment_df, performance_df, advertiser_name, kpi_column_name='Sessions'):
-    """Validates the structure and content of the input dataframes."""
-    errors = []
-    warnings = []
-    required_invest_cols = ['dates', 'company_division_name', 'product_group', 'total_revenue']
-    if not all(col in investment_df.columns for col in required_invest_cols):
-        errors.append(f"Investment file is missing one or more required columns: {required_invest_cols}")
-    required_perf_cols = ['Date', kpi_column_name]
-    if not all(col in performance_df.columns for col in required_perf_cols):
-        errors.append(f"Performance KPI file is missing one or more required columns: {required_perf_cols}")
-    if errors:
-        return False, errors
-    if not investment_df['company_division_name'].str.contains(advertiser_name, case=False, na=False).any():
-        errors.append(f"Advertiser '{advertiser_name}' not found in 'company_division_name' column of the investment file.")
-    warnings.append("ℹ️ INFO: Please ensure the Performance KPI file contains data *only* for the specified advertiser.")
-    return len(errors) == 0, errors + warnings
+
 
 def find_events(df, company_name, increase_ratio, decrease_ratio, post_event_days, pre_selection_pool_size=30):
     """
@@ -68,12 +53,10 @@ def find_events(df, company_name, increase_ratio, decrease_ratio, post_event_day
     """
     print("\n" + "="*50 + "\n🔎 Starting Comprehensive Event Detection & Grouping...\n" + "="*50)
     try:
-        df = df[df['company_division_name'].str.contains(company_name.strip(), case=False, na=False)]
-        if df.empty:
-            print("   - ⚠️ No data found for the specified company name.")
-            return pd.DataFrame(), None, None
-
         df = df.rename(columns={'Product Group': 'product_group', 'Date': 'dates'})
+        print("--- Debug: DataFrame head in find_events ---")
+        print(df.head())
+        # --- End Debug ---
 
         all_individual_events = []
         product_groups = df['product_group'].unique()
@@ -83,11 +66,11 @@ def find_events(df, company_name, increase_ratio, decrease_ratio, post_event_day
             product_df = df[df['product_group'] == product].copy()
             if len(product_df) < 14: continue
 
-            product_df['weeks'] = pd.to_datetime(product_df['dates']).dt.to_period('W').dt.start_time
+            product_df['weeks'] = pd.to_datetime(product_df['dates']).dt.to_period('W-MON').dt.start_time
             weekly_investment_df = product_df.groupby('weeks')['investment'].sum().reset_index()
             if len(weekly_investment_df) < 3: continue
 
-            weekly_investment_df['historical_avg'] = weekly_investment_df['investment'].expanding(2).mean().shift(1)
+            weekly_investment_df['historical_avg'] = weekly_investment_df['investment'].rolling(window=12, min_periods=1).mean().shift(1)
             weekly_investment_df.dropna(subset=['historical_avg'], inplace=True)
             weekly_investment_df = weekly_investment_df[weekly_investment_df['historical_avg'] > 0]
             if weekly_investment_df.empty: continue
@@ -115,21 +98,27 @@ def find_events(df, company_name, increase_ratio, decrease_ratio, post_event_day
         individual_events_df['date'] = pd.to_datetime(individual_events_df['date'])
         individual_events_df['event_week'] = individual_events_df['date'].dt.to_period('W').dt.start_time
 
-        grouped_events = []
+        # Consolidate events that occur in the same week
+        consolidated_events = []
         for week, group in individual_events_df.groupby('event_week'):
-            product_groups = sorted(list(group['ad_product'].unique()))
-            consolidated_product_name = ', '.join(product_groups)
+            channels = sorted(list(group['ad_product'].unique()))
+            # For the consolidated name, we join the sorted channel names
+            consolidated_name = ', '.join(channels)
             
-            grouped_events.append({
+            # We can retain the percentage change of the most significant channel for context
+            # or calculate a weighted average if needed. Here, we take the max change.
+            max_change = group.loc[group['percentage_change'].abs().idxmax()]['percentage_change']
+            
+            consolidated_events.append({
                 'date': week.strftime('%Y-%m-%d'),
-                'ad_product': consolidated_product_name,
-                'percentage_change': group['percentage_change'].iloc[0]
+                'ad_product': consolidated_name,
+                'percentage_change': max_change
             })
-        
-        if not grouped_events:
+
+        if not consolidated_events:
             return pd.DataFrame(), None, None
 
-        event_map_df = pd.DataFrame(grouped_events).sort_values(by='date')
+        event_map_df = pd.DataFrame(consolidated_events).sort_values(by='date')
         
         output_path = 'detected_events.csv'
         event_map_df.to_csv(output_path, index=False)
@@ -141,7 +130,7 @@ def find_events(df, company_name, increase_ratio, decrease_ratio, post_event_day
         print(f"❌ Error processing data for event detection. Please check your input file columns. Details: {e}")
         return pd.DataFrame(), None, None
 
-def run_causal_impact_analysis(kpi_df, daily_investment_df, market_trends_df, pre_period, post_period, event_name, product_group):
+def run_causal_impact_analysis(kpi_df, daily_investment_df, market_trends_df, performance_df, pre_period, post_period, event_name, product_group, model_params):
     try:
         data = kpi_df.copy()
         data['Date'] = pd.to_datetime(data['Date'])
@@ -155,6 +144,35 @@ def run_causal_impact_analysis(kpi_df, daily_investment_df, market_trends_df, pr
 
         model_data = pd.merge(data[['Date', 'Sessions']], investment_pivot_df, on='Date', how='inner')
         model_data = pd.merge(model_data, market_trends_df, on='Date', how='left')
+        
+        # --- Start of New Dynamic Code ---
+        
+        # Rename columns for consistency
+        perf_df_renamed = performance_df.rename(columns={
+            'date': 'Date', 'leads': 'Leads', 'Impressions': 'Impressions', 'Clicks': 'Clicks'
+        })
+        
+        # Define potential covariates and find which ones actually exist in the data
+        possible_covariates = ['Leads', 'Clicks', 'Impressions']
+        found_covariates = [col for col in possible_covariates if col in perf_df_renamed.columns]
+        
+        if found_covariates:
+            print(f"   - Found additional covariates in performance data: {found_covariates}")
+            for col in found_covariates:
+                if perf_df_renamed[col].dtype == 'object':
+                    perf_df_renamed[col] = perf_df_renamed[col].str.replace('.', '', regex=False)
+                perf_df_renamed[col] = pd.to_numeric(perf_df_renamed[col], errors='coerce')
+            
+            perf_df_renamed['Date'] = pd.to_datetime(perf_df_renamed['Date'], errors='coerce')
+            perf_df_renamed.dropna(subset=['Date'] + found_covariates, inplace=True)
+            
+            # Merge only the found and cleaned covariates
+            model_data = pd.merge(model_data, perf_df_renamed[['Date'] + found_covariates], on='Date', how='left')
+        else:
+            print("   - No additional performance covariates found. Proceeding without them.")
+            
+        # --- End of New Dynamic Code ---
+
         model_data.set_index('Date', inplace=True)
         model_data.sort_index(inplace=True)
         model_data.fillna(0, inplace=True)
@@ -163,39 +181,12 @@ def run_causal_impact_analysis(kpi_df, daily_investment_df, market_trends_df, pr
         event_channels = [ch.strip() for ch in product_group.split(',')]
         event_investment_series = model_data[event_channels].sum(axis=1)
 
-        pre_period_data = model_data.loc[pre_period[0]:pre_period[1]]
-        
-        valid_event_channels = [ch for ch in event_channels if ch in pre_period_data.columns]
-        if not valid_event_channels:
-            raise ValueError(f"None of the event channels {event_channels} were found in the model data columns.")
-        pre_period_event_investment = pre_period_data[valid_event_channels].sum(axis=1)
-
-        possible_alphas = np.arange(0.1, 1.0, 0.1)
-        correlations = {alpha: np.corrcoef(geometric_decay(pre_period_event_investment, alpha), pre_period_data['Sessions'])[0, 1] for alpha in possible_alphas}
-        best_alpha = max(correlations, key=correlations.get)
-        print(f"   - Best ad-stock alpha found for causal model: {best_alpha:.2f}")
-
-        pre_period_adstocked_investment = pd.Series(
-            geometric_decay(pre_period_event_investment, best_alpha),
-            index=pre_period_data.index
-        )
-
-        best_k, best_s = (1, 1)
-        try:
-            def hill_for_fit(x, k, s):
-                return pre_period_data['Sessions'].max() * hill_transform(x, k, s)
-            
-            median_investment = np.median(pre_period_adstocked_investment)
-            if median_investment == 0: median_investment = 1
-
-            popt, _ = curve_fit(
-                hill_for_fit, pre_period_adstocked_investment, pre_period_data['Sessions'], 
-                p0=[2, median_investment], bounds=(0, np.inf), maxfev=5000
-            )
-            best_k, best_s = popt
-            print(f"   - Best saturation params found for causal model: k={best_k:.2f}, s={best_s:.2f}")
-        except (RuntimeError, ValueError):
-            print("   - ⚠️ WARNING: Could not find optimal saturation curve for causal model.")
+        # Use pre-trained model parameters
+        best_alpha = model_params['alpha']
+        best_k = model_params['k']
+        best_s = model_params['s']
+        print(f"   - Using pre-trained ad-stock alpha for causal model: {best_alpha:.2f}")
+        print(f"   - Using pre-trained saturation params for causal model: k={best_k:.2f}, s={best_s:.2f}")
 
         transformed_features = {}
         for channel in investment_pivot_df.columns:
@@ -213,7 +204,11 @@ def run_causal_impact_analysis(kpi_df, daily_investment_df, market_trends_df, pr
             return None, None, None, None, None
 
         print("   - Running automated feature selection for causal model...")
-        potential_exog_vars = list(transformed_features.keys()) + [col for col in model_data.columns if 'generic' in col or 'day_' in col or col in ['is_weekend', 'is_payday_period', 'is_holiday']]
+        potential_exog_vars = list(transformed_features.keys()) + [col for col in model_data.columns if 'generic' in col.lower() or 'day_' in col or col in ['is_weekend', 'is_payday_period', 'is_holiday']]
+        
+        # --- Add the dynamically found covariates to the list ---
+        if found_covariates:
+            potential_exog_vars.extend(found_covariates)
         
         selector = VarianceThreshold(threshold=0.01)
         selector.fit(pre_data_for_model[potential_exog_vars])
@@ -255,26 +250,46 @@ def run_causal_impact_analysis(kpi_df, daily_investment_df, market_trends_df, pr
         rel_lift = (abs_lift / predicted_mean.sum()) * 100 if predicted_mean.sum() != 0 else 0
         
         event_investment_agg = event_investment_series.reset_index().rename(columns={0: 'investment'})
+        event_investment_agg['Date'] = pd.to_datetime(event_investment_agg['Date'])
+        
+        # Calculate historical average investment up to the pre-period
+        pre_period_end_date = pd.to_datetime(pre_period[1])
+        historical_investment = event_investment_agg[event_investment_agg['Date'] <= pre_period_end_date]
+        
+        # Weekly aggregation for historical average calculation
+        historical_investment['weeks'] = historical_investment['Date'].dt.to_period('W').dt.start_time
+        weekly_investment_df = historical_investment.groupby('weeks')['investment'].sum().reset_index()
+        
+        # Calculate expanding average and get the last value for the pre-event period
+        weekly_investment_df['historical_avg'] = weekly_investment_df['investment'].rolling(window=12, min_periods=1).mean().shift(1)
+        
+        if not weekly_investment_df.empty and pd.notna(weekly_investment_df['historical_avg'].iloc[-1]):
+            total_investment_pre_period = weekly_investment_df['historical_avg'].iloc[-1] * (len(post_data) / 7)
+        else:
+            # Fallback to like-for-like if historical average is not available
+            like_for_like_pre_period_end = pd.to_datetime(post_period[0]) - timedelta(days=1)
+            like_for_like_pre_period_start = like_for_like_pre_period_end - timedelta(days=len(post_data) - 1)
+            total_investment_pre_period = event_investment_agg[(event_investment_agg['Date'] >= like_for_like_pre_period_start) & (event_investment_agg['Date'] <= like_for_like_pre_period_end)]['investment'].sum()
+
         total_investment_post_period = event_investment_agg[event_investment_agg['Date'].isin(post_data.index)]['investment'].sum()
         event_period_avg_investment = event_investment_agg[event_investment_agg['Date'].isin(post_data.index)]['investment'].mean()
-        
-        like_for_like_pre_period_end = pd.to_datetime(post_period[0]) - timedelta(days=1)
-        like_for_like_pre_period_start = like_for_like_pre_period_end - timedelta(days=len(post_data) - 1)
-        total_investment_pre_period = event_investment_agg[(event_investment_agg['Date'] >= like_for_like_pre_period_start) & (event_investment_agg['Date'] <= like_for_like_pre_period_end)]['investment'].sum()
 
         investment_change_pct = ((total_investment_post_period - total_investment_pre_period) / total_investment_pre_period) * 100 if total_investment_pre_period > 0 else 0
         cpa_incremental = total_investment_post_period / abs_lift if abs_lift != 0 else 0
         
-        chart_start = pd.to_datetime(post_period[0]) - timedelta(days=7)
-        chart_end = pd.to_datetime(post_period[1]) + timedelta(days=7)
+        start_date = pd.to_datetime(post_period[0])
+        end_date = pd.to_datetime(post_period[1])
+        chart_start = start_date - pd.to_timedelta(start_date.dayofweek + 7, unit='d')
+        chart_end = end_date + pd.to_timedelta(6 - end_date.dayofweek + 7, unit='d')
+
         actuals_for_chart = pd.merge(model_data.loc[chart_start:chart_end, ['Sessions']].reset_index(), event_investment_agg[(event_investment_agg['Date'] >= chart_start) & (event_investment_agg['Date'] <= chart_end)], on='Date', how='left').fillna(0)
         actuals_for_chart.rename(columns={'investment': 'Total_Investment'}, inplace=True)
         
         forecast_for_chart = pd.DataFrame({'Date': post_data.index, 'Forecasted Sessions': predicted_mean.values})
         line_chart_df = pd.merge(actuals_for_chart, forecast_for_chart, on='Date', how='left').rename(columns={'Sessions': 'Actual Sessions', 'Total_Investment': 'Investment'})
         
-        investment_bar_df = pd.DataFrame({'Period': ['Pre-Event', 'Event'], 'Investment': [total_investment_pre_period, total_investment_post_period]})
-        sessions_bar_df = pd.DataFrame({'Category': ['Forecasted Sessions', 'Actual Sessions'], 'Sessions': [predicted_mean.sum(), post_data['Sessions'].sum()]})
+        investment_bar_df = pd.DataFrame({'Period': ['Pre-Event', 'Event'], 'Investment': [total_investment_pre_period, total_investment_post_period]}).set_index('Period')
+        sessions_bar_df = pd.DataFrame({'Category': ['Forecasted', 'Actual'], 'Sessions': [predicted_mean.sum(), post_data['Sessions'].sum()]}).set_index('Category')
         
         results_dict = {"start_date": post_period[0], "end_date": post_period[1], "product_group": product_group, "absolute_lift": abs_lift, "relative_lift_pct": rel_lift, "p_value": p_value, "investment_change_pct": investment_change_pct, "cpa_incremental": cpa_incremental, "total_investment_post_period": total_investment_post_period, "total_investment_pre_period": total_investment_pre_period, "mae": mae, "mape": mape, "model_r_squared": r_squared, "event_period_avg_investment": event_period_avg_investment}
         
@@ -324,12 +339,27 @@ def _train_response_model(model_data, product_group):
     max_kpi_scaler = full_period_kpi.max()
     hist_avg_investment = model_data.iloc[-90:][valid_event_channels].sum(axis=1).mean()
     
+    # --- New Code: Calculate investment proportion for each channel ---
+    channel_proportions = {}
+    if hist_avg_investment > 0:
+        for channel in valid_event_channels:
+            channel_avg_investment = model_data.iloc[-90:][channel].mean()
+            channel_proportions[channel] = channel_avg_investment / hist_avg_investment
+    else:
+        # Fallback to equal split if there's no historical investment
+        equal_share = 1 / len(valid_event_channels)
+        for channel in valid_event_channels:
+            channel_proportions[channel] = equal_share
+    print(f"   - Calculated channel investment proportions: {channel_proportions}")
+    # --- End New Code ---
+
     historical_adstocked_inv = hist_avg_investment / (1 - best_alpha)
     historical_saturated_response = hill_transform(historical_adstocked_inv, best_k, best_s)
     hist_avg_kpi = historical_saturated_response * max_kpi_scaler
 
+    model_params = {'alpha': best_alpha, 'k': best_k, 's': best_s}
     print("   - ✅ Projection model training on full data complete.")
-    return best_alpha, best_k, best_s, max_kpi_scaler, hist_avg_investment, hist_avg_kpi
+    return best_alpha, best_k, best_s, max_kpi_scaler, hist_avg_investment, hist_avg_kpi, model_params, channel_proportions
 
 def run_opportunity_projection(kpi_df, daily_investment_df, market_trends_df, product_group, config):
     """
@@ -345,7 +375,7 @@ def run_opportunity_projection(kpi_df, daily_investment_df, market_trends_df, pr
         model_data.sort_index(inplace=True)
         model_data.fillna(0, inplace=True)
 
-        best_alpha, best_k, best_s, max_kpi_scaler, hist_avg_investment, hist_avg_kpi = _train_response_model(model_data, product_group)
+        best_alpha, best_k, best_s, max_kpi_scaler, hist_avg_investment, hist_avg_kpi, model_params, channel_proportions = _train_response_model(model_data, product_group)
         
         max_hist_inv = daily_investment_df['investment'].max()
         investment_scenarios = np.linspace(1, max_hist_inv * 2, 200)
@@ -356,24 +386,39 @@ def run_opportunity_projection(kpi_df, daily_investment_df, market_trends_df, pr
         conversion_rate = config.get('conversion_rate_from_kpi_to_bo', 0)
         avg_ticket = config.get('average_ticket', 0)
 
-        response_curve_df['Projected_Revenue'] = response_curve_df['Projected_Total_KPIs'] * conversion_rate * (avg_ticket if avg_ticket > 0 else 1)
-        
         baseline_investment = hist_avg_investment
         baseline_kpi = hist_avg_kpi
-        baseline_revenue = baseline_kpi * conversion_rate * (avg_ticket if avg_ticket > 0 else 1)
-        
-        baseline_point = {'Daily_Investment': baseline_investment, 'Projected_Total_KPIs': baseline_kpi, 'Projected_Revenue': baseline_revenue, 'Incremental_Investment': 0, 'Incremental_Revenue': 0, 'Incremental_ROI': 0}
-        
-        response_curve_df['Incremental_Investment'] = response_curve_df['Daily_Investment'] - baseline_investment
-        response_curve_df['Incremental_Revenue'] = response_curve_df['Projected_Revenue'] - baseline_revenue
-        response_curve_df_above_baseline = response_curve_df[response_curve_df['Incremental_Investment'] >= 0].copy()
-        response_curve_df_above_baseline['Incremental_ROI'] = (response_curve_df_above_baseline['Incremental_Revenue'] / response_curve_df_above_baseline['Incremental_Investment']).fillna(0)
 
+        if avg_ticket > 0:
+            # Revenue optimization
+            response_curve_df['Projected_Revenue'] = response_curve_df['Projected_Total_KPIs'] * conversion_rate * avg_ticket
+            baseline_revenue = hist_avg_kpi * conversion_rate * avg_ticket
+            response_curve_df['Incremental_Investment'] = response_curve_df['Daily_Investment'] - baseline_investment
+            response_curve_df['Incremental_Revenue'] = response_curve_df['Projected_Revenue'] - baseline_revenue
+            response_curve_df['Incremental_ROI'] = (response_curve_df['Incremental_Revenue'] / response_curve_df['Incremental_Investment']).fillna(0)
+        else:
+            # Conversion optimization
+            response_curve_df['Incremental_Investment'] = response_curve_df['Daily_Investment'] - baseline_investment
+            response_curve_df['Incremental_KPI'] = response_curve_df['Projected_Total_KPIs'] - baseline_kpi
+            response_curve_df['Incremental_ROI'] = (response_curve_df['Incremental_KPI'] / response_curve_df['Incremental_Investment']).fillna(0)
+
+        baseline_point = {'Daily_Investment': baseline_investment, 'Projected_Total_KPIs': baseline_kpi, 'Incremental_Investment': 0, 'Incremental_ROI': 0}
+        if avg_ticket > 0:
+            baseline_point['Projected_Revenue'] = baseline_revenue
+            baseline_point['Incremental_Revenue'] = 0
+        else:
+            baseline_point['Incremental_KPI'] = 0
+        
+        response_curve_df_above_baseline = response_curve_df[response_curve_df['Incremental_Investment'] >= 0].copy()
+        
         baseline_point['Scenario'] = 'Cenário Atual'
 
-        max_roi_index = response_curve_df_above_baseline['Incremental_ROI'].idxmax()
-        max_roi_point = response_curve_df_above_baseline.loc[max_roi_index].to_dict()
-        max_roi_point['Scenario'] = 'Máximo ROI'
+        if not response_curve_df_above_baseline.empty:
+            max_roi_index = response_curve_df_above_baseline['Incremental_ROI'].idxmax()
+            max_roi_point = response_curve_df_above_baseline.loc[max_roi_index].to_dict()
+            max_roi_point['Scenario'] = 'Máximo ROI'
+        else:
+            max_roi_point = None
 
         scaler = MinMaxScaler()
         scaled_points = scaler.fit_transform(response_curve_df[['Daily_Investment', 'Projected_Total_KPIs']])
@@ -385,24 +430,49 @@ def run_opportunity_projection(kpi_df, daily_investment_df, market_trends_df, pr
         vec_to_line = vec_from_first - vec_from_first_parallel
         dist_to_line = np.sqrt(np.sum(vec_to_line**2, axis=1))
         knee_index = np.argmax(dist_to_line)
-        diminishing_return_point = response_curve_df.loc[knee_index].to_dict()
-        diminishing_return_point['Scenario'] = 'Ponto de Inflexão'
-        diminishing_return_point['Incremental_ROI'] = (diminishing_return_point['Incremental_Revenue'] / diminishing_return_point['Incremental_Investment']) if diminishing_return_point['Incremental_Investment'] > 0 else 0
+        max_roi_point = response_curve_df.loc[knee_index].to_dict()
+        max_roi_point['Scenario'] = 'Máximo ROI'
+        if 'Incremental_Revenue' in max_roi_point:
+            max_roi_point['Incremental_ROI'] = (max_roi_point['Incremental_Revenue'] / max_roi_point['Incremental_Investment']) if max_roi_point['Incremental_Investment'] > 0 else 0
 
-        saturation_point = None
+        # Crescimento Acelerado is the saturation point
+        accelerated_growth_point = None
         if avg_ticket > 0:
             profitable_df = response_curve_df[response_curve_df['Incremental_ROI'] > 1]
             if not profitable_df.empty:
-                saturation_point = response_curve_df.loc[profitable_df['Daily_Investment'].idxmax()].to_dict()
-                saturation_point['Scenario'] = 'Máximo Investimento Lucrativo'
+                accelerated_growth_point = response_curve_df.loc[profitable_df['Daily_Investment'].idxmax()].to_dict()
+                accelerated_growth_point['Scenario'] = 'Crescimento Acelerado'
 
-        scenarios_df = pd.DataFrame([p for p in [baseline_point, max_roi_point, diminishing_return_point, saturation_point] if p is not None])
+        
+        # Find the diminishing return point (where the second derivative is maximal)
+        second_derivative = np.diff(response_curve_df['Projected_Total_KPIs'], 2)
+        diminishing_return_index = np.argmax(second_derivative) + 1 if len(second_derivative) > 0 else -1
+
+        if diminishing_return_index != -1:
+            diminishing_return_point = response_curve_df.loc[diminishing_return_index].to_dict()
+            diminishing_return_point['Scenario'] = 'Ponto de Inflexão'
+        else:
+            diminishing_return_point = None
+
+        # Find the saturation point (e.g., 95% of max response)
+        max_response = response_curve_df['Projected_Total_KPIs'].max()
+        saturation_threshold = 0.95 * max_response
+        saturation_df = response_curve_df[response_curve_df['Projected_Total_KPIs'] >= saturation_threshold]
+        
+        if not saturation_df.empty:
+            saturation_point = saturation_df.iloc[0].to_dict()
+            saturation_point['Scenario'] = 'Saturação'
+        else:
+            saturation_point = None
+
+
+        scenarios_df = pd.DataFrame([p for p in [baseline_point, max_roi_point, accelerated_growth_point, diminishing_return_point, saturation_point] if p is not None])
         model_params = {'alpha': best_alpha, 'k': best_k, 's': best_s, 'scaler': max_kpi_scaler}
 
-        return response_curve_df, scenarios_df, baseline_point, max_roi_point, diminishing_return_point, saturation_point, model_params
+        return response_curve_df, scenarios_df, baseline_point, max_roi_point, diminishing_return_point, saturation_point, accelerated_growth_point, model_params, channel_proportions
 
     except Exception as e:
         import traceback
         print(f"❌ An error occurred in the sweet spot calculation: {e}")
         traceback.print_exc()
-        return pd.DataFrame(), pd.DataFrame(), {}, {}, {}, None, {}
+        return pd.DataFrame(), pd.DataFrame(), {}, {}, {}, {}, {}, {}, {}

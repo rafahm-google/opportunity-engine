@@ -110,21 +110,36 @@ Example `config.json` for `advertiser_a`:
   "p_value_threshold": 0.1,
   "increase_threshold_percent": 50,
   "decrease_threshold_percent": 30,
-  "post_event_days": 14
+  "post_event_days": 14,
+  "column_mapping": {
+    "investment_file": {
+      "date_col": "dates",
+      "channel_col": "product_group",
+      "investment_col": "total_revenue"
+    },
+    "performance_file": {
+      "date_col": "date",
+      "kpi_col": "Sessions"
+    },
+    "generic_trends_file": {
+      "date_col": "Day",
+      "trends_col": "Ad Opportunities"
+    }
+  }
 }
 ```
 
 **d. Prepare Your Input Data:**
-The script requires three CSV files with specific columns. The paths to these files must be correctly specified in the `config.json`.
+The script requires three CSV files. The paths to these files and the names of the columns within them must be correctly specified in the `config.json` file.
 
 **1. Investment Data (`investment-data.csv`)**
-This file should contain daily investment data, broken down by product group.
+This file should contain daily investment data, broken down by product group. The script will use the columns specified in the `column_mapping.investment_file` object in your config.
 
-*   **Required Columns:**
-    *   `dates`: The date of the investment (e.g., `YYYY-MM-DD`).
-    *   `company_division_name`: The name of the advertiser. This must match the `advertiser_name` in the config.
-    *   `product_group`: The name of the marketing channel or campaign (e.g., `YouTube Brand`, `Google Search`).
-    *   `total_revenue`: The total amount invested on that day for that product group.
+*   **Required Columns (configurable):**
+    *   `date_col`: The date of the investment (e.g., `YYYY-MM-DD`).
+    *   `channel_col`: The name of the marketing channel or campaign (e.g., `YouTube Brand`, `Google Search`).
+    *   `investment_col`: The total amount invested on that day for that product group.
+    *   It is also expected a column with the advertiser name.
 
 *   **Example:**
     ```csv
@@ -135,11 +150,11 @@ This file should contain daily investment data, broken down by product group.
     ```
 
 **2. Performance Data (`performance-data.csv`)**
-This file contains the daily performance metric (KPI) you want to measure.
+This file contains the daily performance metric (KPI) you want to measure. The script will use the columns specified in the `column_mapping.performance_file` object.
 
-*   **Required Columns:**
-    *   `Date`: The date (e.g., `YYYY-MM-DD`).
-    *   `Sessions` (or your custom KPI): The total value of your primary KPI for that day. The column name should be `Sessions` by default, or whatever you specify in the `performance_kpi_column` config parameter.
+*   **Required Columns (configurable):**
+    *   `date_col`: The date (e.g., `YYYY-MM-DD`).
+    *   `kpi_col`: The total value of your primary KPI for that day. The name of this column should also be set in the `performance_kpi_column` parameter in your config.
 
 *   **Example:**
     ```csv
@@ -150,11 +165,11 @@ This file contains the daily performance metric (KPI) you want to measure.
     ```
 
 **3. Generic Trends Data (`generic_trends.csv`)**
-This file provides market-level data to be used as a covariate in the model, helping it distinguish between campaign effects and general market trends.
+This file provides market-level data to be used as a covariate in the model. The script will use the columns specified in the `column_mapping.generic_trends_file` object.
 
-*   **Required Columns:**
-    *   The first column must be the date.
-    *   Subsequent columns can contain any relevant market data, such as `User Searches`, `Impressions`, `Clicks`, or `Ad Opportunities`. The script is flexible, but it's recommended to provide data that reflects the overall search interest in your vertical.
+*   **Required Columns (configurable):**
+    *   `date_col`: The date column.
+    *   `trends_col`: A column containing relevant market data, such as `User Searches`, `Impressions`, `Clicks`, or `Ad Opportunities`.
 
 *   **Example:**
     ```csv

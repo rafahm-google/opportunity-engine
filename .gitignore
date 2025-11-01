@@ -1,29 +1,46 @@
-# Python
-__pycache__/
+# Python virtual environment
 venv/
+
+# Python cache
+__pycache__/
 *.pyc
 
 # Environment variables
 .env
 
-# Output files
+# IDE-specific files
+.vscode/
+.idea/
+
+# Advertiser data and output files
+inputs/
 outputs/
 *.csv
 *.png
 *.html
 *.xlsx
+*.pdf
 
-# IDE specific files
-.vscode/
-.idea/\n# Ignore local confidential data\ninputs/
+# Ignore all scripts by default
+scripts/*
 
-# Ignore alternative and legacy scripts
-scripts/analysis_similaweb.py
-scripts/local_main_similaweb.py
-scripts/consolidated_analysis.py
-scripts/consolidated_report_v2.py
-scripts/consolidated_report.py
-scripts/final_consolidated_report.py
-scripts/debug_forecast.py
-scripts/product_meta_analysis.py
+# Allow essential scripts to be tracked
+!scripts/analysis.py
+!scripts/data_preprocessor.py
+!scripts/gemini_report.py
+!scripts/google_api.py
+!scripts/local_main.py
+!scripts/local_main-without-gemini.py
+!scripts/presentation.py
+!scripts/recommendations.py
 
+# Ignore markdown files by default
+*.md
+
+# Allow documentation and requirements
+!README.md
+!CUSTOMIZATION.md
+!requirements.txt
+
+# Ignore sandbox files
+sandbox.py

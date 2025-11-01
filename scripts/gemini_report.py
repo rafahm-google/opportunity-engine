@@ -13,65 +13,6 @@ import pandas as pd
 import google.generativeai as genai
 from presentation import format_number
 
-def save_results_to_csv(results_data, config, business_impact_revenue, output_filename):
-    """
-    Saves all key numerical results of an analysis to a consolidated CSV file for a specific advertiser.
-    """
-    output_csv_path = output_filename
-    try:
-        print(f"   - Saving comprehensive analysis results to {output_csv_path}...")
-        
-        # Calculate ROI based on the actual investment in the post period
-        total_investment_post = results_data.get('total_investment_post_period', 0)
-        incremental_roi = business_impact_revenue / total_investment_post if total_investment_post > 0 else 0
-
-        # Calculate incremental sales units
-        business_impact_sales = results_data.get('absolute_lift', 0) * config.get('conversion_rate_from_kpi_to_bo', 0)
-
-        data_to_save = {
-            # Event Identifiers
-            'start_date': results_data.get('start_date', 'N/A'),
-            'end_date': results_data.get('end_date', 'N/A'),
-            'product_group': results_data.get('product_group', 'N/A'),
-            
-            # Causal Impact & Business Results
-            'p_value': results_data.get('p_value'),
-            'absolute_lift_kpi': results_data.get('absolute_lift'),
-            'relative_lift_pct': results_data.get('relative_lift_pct'),
-            'incremental_sales_units': business_impact_sales,
-            'incremental_revenue': business_impact_revenue,
-            'incremental_roi': incremental_roi,
-            'cpa_incremental': results_data.get('cpa_incremental'),
-
-            # Investment Details
-            'investment_change_pct': results_data.get('investment_change_pct'),
-            'total_investment_pre_period': results_data.get('total_investment_pre_period'),
-            'total_investment_post_period': total_investment_post,
-
-            # Model Performance
-            'model_r_squared': results_data.get('model_r_squared'),
-            'mae': results_data.get('mae'),
-            'mape': results_data.get('mape'),
-
-            # Configuration Used
-            'average_ticket': config.get('average_ticket', config.get('average_ticket_value', 0)),
-            'conversion_rate': config.get('conversion_rate_from_kpi_to_bo', 0)
-        }
-        
-        df_to_save = pd.DataFrame([data_to_save])
-
-        # Ensure directory exists
-        os.makedirs(os.path.dirname(output_csv_path), exist_ok=True)
-
-        # Append to CSV, writing header if file doesn't exist
-        file_exists = os.path.exists(output_csv_path)
-        df_to_save.to_csv(output_csv_path, mode='a', header=not file_exists, index=False)
-        
-        print(f"   - ✅ Results appended to {output_csv_path} successfully.")
-
-    except Exception as e:
-        print(f"   - ⚠️ WARNING: Failed to save results to CSV. Details: {e}")
-
 def _get_image_as_base64(path):
     """Reads an image file and returns it as a base64 encoded string."""
 
@@ -87,13 +28,13 @@ def _get_image_as_base64(path):
         print(f"   - ⚠️ WARNING: Could not read image file at {path}. Error: {e}")
         return None
 
-def _generate_full_report_narrative(gemini_client, results_data, config, market_analysis_df, projection_df):
+def _generate_full_report_narrative(gemini_client, results_data, config, market_analysis_df, scenarios_df, csv_output_filename=None, correlation_matrix=None):
     """Generates the entire report narrative with a single, comprehensive prompt."""
     print("   - Generating full strategic narrative with Gemini...")
 
     # --- 1. Prepare all data for the prompt ---
     avg_ticket = config.get('average_ticket', config.get('average_ticket_value', 0))
-    business_impact_sales = results_data.get('absolute_lift', 0) * config.get('conversion_rate_from_k_to_bo', 0)
+    business_impact_sales = results_data.get('absolute_lift', 0) * config.get('conversion_rate_from_kpi_to_bo', 0)
     
     # --- DYNAMIC LOGIC ---
     if avg_ticket > 0:
@@ -127,8 +68,12 @@ def _generate_full_report_narrative(gemini_client, results_data, config, market_
             "mae": f"{results_data.get('mae', 0):.2f}",
             "mape": f"{results_data.get('mape', 0):.2f}%"
         },
-        "investment_scenarios": projection_df.to_string() if projection_df is not None else "N/A",
+        "investment_scenarios": scenarios_df.to_string() if scenarios_df is not None else "N/A",
     }
+
+    if csv_output_filename and os.path.exists(csv_output_filename):
+        presentation_df = pd.read_csv(csv_output_filename)
+        prompt_data['presentation_data_csv'] = presentation_df.to_string()
 
     # --- 2. Define the JSON structure Gemini should return ---
     json_schema = f"""
@@ -175,6 +120,16 @@ def _generate_full_report_narrative(gemini_client, results_data, config, market_
     ```
     """
 
+    if correlation_matrix is not None:
+        prompt += f"""
+<correlation_analysis>
+### Análise de Correlação
+A matriz de correlação entre o investimento diário total e os KPIs de negócio (leads e conversões) é a seguinte:
+{correlation_matrix.to_string()}
+
+**Instrução Adicional:** Use esta matriz de correlação como um insight fundamental em sua análise. Destaque as relações fracas ou negativas e discuta como isso impacta a previsibilidade do modelo e a estratégia de marketing.
+</correlation_analysis>
+"""
     try:
         response = gemini_client.generate_content(prompt)
         cleaned_response_text = response.text.strip().replace('```json\n', '').replace('\n```', '')
@@ -185,7 +140,7 @@ def _generate_full_report_narrative(gemini_client, results_data, config, market_
         print(f"   - ❌ ERROR: Could not generate or parse the full narrative from Gemini. Details: {e}")
         return json.loads(json_schema.replace('...', 'Error generating content.'))
 
-def generate_html_report(gemini_client, results_data, config, image_paths, output_filename, market_analysis_df, causal_impact_df, projection_df=None, csv_output_filename=None):
+def generate_html_report(gemini_client, results_data, config, image_paths, output_filename, market_analysis_df, causal_impact_df, scenarios_df, csv_output_filename=None, correlation_matrix=None):
     """
     Generates a self-contained HTML report using the AI-generated narrative.
     """
@@ -195,36 +150,33 @@ def generate_html_report(gemini_client, results_data, config, image_paths, outpu
     image_b64s = {key: _get_image_as_base64(path) for key, path in image_paths.items() if path}
 
     # --- 2. AI Narrative Generation ---
-    narrative = _generate_full_report_narrative(gemini_client, results_data, config, market_analysis_df, projection_df)
+    narrative = _generate_full_report_narrative(gemini_client, results_data, config, market_analysis_df, scenarios_df, csv_output_filename=csv_output_filename, correlation_matrix=correlation_matrix)
 
     # --- 3. Data Calculation for Tables ---
     avg_ticket = config.get('average_ticket', config.get('average_ticket_value', 0))
     business_impact_sales = results_data.get('absolute_lift', 0) * config.get('conversion_rate_from_kpi_to_bo', 0)
     business_impact_revenue = business_impact_sales * avg_ticket
 
-    # --- Save results to CSV before generating HTML ---
-    if csv_output_filename:
-        save_results_to_csv(results_data, config, business_impact_revenue, csv_output_filename)
-
     # --- 4. Build HTML Components ---
     
     # --- DYNAMIC LOGIC for Table ---
     scenarios_table_html = ""
-    if projection_df is not None and not projection_df.empty:
+    if scenarios_df is not None and not scenarios_df.empty:
+        # Determine headers based on whether there is a monetary value
         if avg_ticket > 0:
             header = "<th>Cenário</th><th>Investimento Mensal</th><th>Receita Projetada</th><th>ROI Marginal</th><th>Investimento Incremental</th><th>Receita Incremental</th>"
             row_template = (
-                "<td>{scenario}</td>"
+                "<td>{Scenario}</td>"
                 "<td>{inv_monthly}</td>"
                 "<td>{proj_rev}</td>"
-                "<td>{roi:.1f}</td>"
+                "<td>{roi:.2f}</td>"
                 "<td>{inc_inv}</td>"
                 "<td>{inc_rev}</td>"
             )
         else:
-            header = "<th>Cenário</th><th>Investimento Mensal</th><th>Pedidos Projetados</th><th>CPA Incremental</th><th>Investimento Incremental</th><th>Pedidos Incrementais</th>"
+            header = "<th>Cenário</th><th>Investimento Mensal</th><th>Oportunidades Projetadas</th><th>Custo por Oportunidade Incremental</th><th>Investimento Incremental</th><th>Oportunidades Incrementais</th>"
             row_template = (
-                "<td>{scenario}</td>"
+                "<td>{Scenario}</td>"
                 "<td>{inv_monthly}</td>"
                 "<td>{proj_orders:,.0f}</td>"
                 "<td>{cpa}</td>"
@@ -234,29 +186,35 @@ def generate_html_report(gemini_client, results_data, config, image_paths, outpu
 
         scenarios_table_html = f'<table class="scenarios-table"><tr>{header}</tr>'
         
-        for _, row in projection_df.iterrows():
-            inc_investment = row['Incremental_Investment'] * 30
-            inc_revenue = row['Incremental_Revenue'] * 30
+        # Filter for the three key scenarios for the table
+        scenarios_to_include = ['Cenário Atual', 'Ponto de Inflexão', 'Crescimento Acelerado']
+        filtered_scenarios_df = scenarios_df[scenarios_df['Scenario'].isin(scenarios_to_include)]
+
+        # Build table directly from the filtered scenarios_df to ensure data integrity
+        for _, row in filtered_scenarios_df.sort_values('Daily_Investment').iterrows():
+            inc_investment = row.get('Incremental_Investment', 0) * 30
+            inc_revenue_or_orders = row.get('Incremental_Revenue', 0) * 30 # This holds revenue if ticket > 0, else orders
             
             if avg_ticket > 0:
                 formatted_row = row_template.format(
-                    scenario=row['Scenario'],
+                    Scenario=row['Scenario'],
                     inv_monthly=format_number(row['Daily_Investment'] * 30, currency=True),
                     proj_rev=format_number(row['Projected_Revenue'] * 30, currency=True),
-                    roi=row['Incremental_ROI'],
+                    roi=row.get('Incremental_ROI', 0),
                     inc_inv=format_number(inc_investment, currency=True),
-                    inc_rev=format_number(inc_revenue, currency=True)
+                    inc_rev=format_number(inc_revenue_or_orders, currency=True)
                 )
             else:
-                # 'Projected_Revenue' now holds the number of orders
-                cpa = format_number(inc_investment / inc_revenue, currency=True) if inc_revenue > 0 else "N/A"
+                cpa = format_number(inc_investment / inc_revenue_or_orders, currency=True) if inc_revenue_or_orders > 0 else "N/A"
+                proj_orders = row['Projected_Total_KPIs'] * config.get('conversion_rate_from_kpi_to_bo', 0) * 30
+                inc_orders = inc_revenue_or_orders * config.get('conversion_rate_from_kpi_to_bo', 0)
                 formatted_row = row_template.format(
-                    scenario=row['Scenario'],
+                    Scenario=row['Scenario'],
                     inv_monthly=format_number(row['Daily_Investment'] * 30, currency=True),
-                    proj_orders=row['Projected_Revenue'] * 30,
+                    proj_orders=proj_orders,
                     cpa=cpa,
                     inc_inv=format_number(inc_investment, currency=True),
-                    inc_orders=inc_revenue 
+                    inc_orders=inc_orders
                 )
             
             scenarios_table_html += f"<tr>{formatted_row}</tr>"

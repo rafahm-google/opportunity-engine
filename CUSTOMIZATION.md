@@ -4,61 +4,68 @@ This guide provides detailed instructions for adapting the Automated Total Oppor
 
 ## 1. Mapping Your Input Data Columns
 
-The most common customization is adapting the script to read CSV files with different column names. Instead of renaming your source files, you can make small adjustments in `scripts/local_main.py` to map your column names to the ones the script expects internally.
+The most common customization is adapting the script to read CSV files with different column names. Instead of renaming your source files, you can define your column names in the `column_mapping` object within your `config.json` file.
 
-### a. Investment Data (`investment-data.csv`)
+This object is divided into three sections: `investment_file`, `performance_file`, and `generic_trends_file`.
 
-The script internally expects the investment data to have the following columns: `Date`, `investment`, and `Product Group`. You can map your source columns to these names directly in the code.
+### a. Investment Data
 
-**Location:** `scripts/local_main.py`, around line 70.
+In the `investment_file` section of the `column_mapping`, you can specify the names for the date, channel, and investment columns.
 
-**Instructions:**
-Find this line of code:
-```python
-daily_investment_df = raw_investment_df.copy().rename(columns={'dates': 'Date', 'total_revenue': 'investment', 'product_group': 'Product Group'})
-```
-
-Modify the `rename` dictionary to match your column names.
+*   `date_col`: The name of the column containing the date of the investment.
+*   `channel_col`: The name of the column containing the marketing channel or product group.
+*   `investment_col`: The name of the column containing the investment amount.
 
 **Example:**
-If your investment file has columns named `day`, `cost`, and `channel`, you would change the line to:
-```python
-daily_investment_df = raw_investment_df.copy().rename(columns={'day': 'Date', 'cost': 'investment', 'channel': 'Product Group'})
+If your investment file has columns named `day`, `cost`, and `channel`, you would configure it like this:
+```json
+"column_mapping": {
+  "investment_file": {
+    "date_col": "day",
+    "channel_col": "channel",
+    "investment_col": "cost"
+  },
+  ...
+}
 ```
 
-### b. Performance Data (`performance-data.csv`)
+### b. Performance Data
 
-For the performance file, the script is more flexible.
+In the `performance_file` section, you can specify the names for the date and KPI columns.
 
-*   **Date Column:** The script expects the date column to be named `Date` after being renamed from the first column of the file. If your date column has a different name, find this line (around line 60) and change it:
-    ```python
-    raw_kpi_df.rename(columns={raw_kpi_df.columns[0]: 'Date'}, inplace=True)
-    ```
-    For example, if your date column is named `report_date`, change it to:
-    ```python
-    raw_kpi_df.rename(columns={'report_date': 'Date'}, inplace=True)
-    ```
-
-*   **KPI Column:** To specify your Key Performance Indicator, use the `performance_kpi_column` parameter in your `config.json` file, as explained in the main `README.md`. The script will use that column for the analysis.
-
-### c. Generic Trends Data (`generic_trends.csv`)
-
-The script is designed to automatically process the generic trends file. It will rename the first column to `Date` and then look for specific columns to use as covariates: `User Searches`, `Impressions`, `Clicks`, and `Spend`.
-
-If your trends file uses different names for these metrics, you can modify the mapping.
-
-**Location:** `scripts/local_main.py`, inside the `clean_and_prepare_trends` function (around line 45).
-
-**Instructions:**
-Modify the `relevant_cols` dictionary to match the column names in your file.
+*   `date_col`: The name of the column containing the date.
+*   `kpi_col`: The name of your primary Key Performance Indicator column. The name of this column should also be specified in the `performance_kpi_column` parameter in your config.
 
 **Example:**
-If your file has a column named `Buscas` instead of `User Searches`, you would change the dictionary to:
-```python
-relevant_cols = {'Buscas': f'{prefix}_searches', 'Impressions': f'{prefix}_impressions', 'Clicks': f'{prefix}_clicks', 'Spend': f'{prefix}_spend'}
+If your performance file uses `report_date` and `Conversions`, your config would be:
+```json
+"performance_kpi_column": "Conversions",
+"column_mapping": {
+  "performance_file": {
+    "date_col": "report_date",
+    "kpi_col": "Conversions"
+  },
+  ...
+}
 ```
 
-Any other numeric columns in this file will also be automatically included as potential covariates in the model.
+### c. Generic Trends Data
+
+In the `generic_trends_file` section, you can specify the names for the date and trends columns.
+
+*   `date_col`: The name of the column containing the date.
+*   `trends_col`: The name of the column that provides general market data (e.g., search volume, ad opportunities).
+
+**Example:**
+If your trends file uses `data` for the date and `buscas` for the trend data:
+```json
+"column_mapping": {
+  "generic_trends_file": {
+    "date_col": "data",
+    "trends_col": "buscas"
+  }
+}
+```
 
 ## 2. Adding New Custom Covariates
 

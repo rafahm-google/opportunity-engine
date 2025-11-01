@@ -6,7 +6,7 @@ This module generates a recommendations markdown file based on the analysis resu
 import os
 from presentation import format_number
 
-def generate_recommendations_file(results_data, scenarios_df, config, output_dir):
+def generate_recommendations_file(results_data, scenarios_df, config, output_dir, channel_proportions):
     """
     Generates a RECOMMENDATIONS.md file with a dynamic, data-driven strategic plan.
     """
@@ -51,6 +51,13 @@ Com base na análise de oportunidade, recomendamos um plano de três fases para 
                 if receita_fase2 == 0:  # Fallback for non-revenue optimization
                     receita_fase2 = (acelerado_point['Projected_Total_KPIs'] * config.get('conversion_rate_from_kpi_to_bo', 0) * config.get('average_ticket', 0)) * 30
 
+                # Format channel breakdown
+                breakdown_list = ""
+                if channel_proportions:
+                    for channel, proportion in channel_proportions.items():
+                        channel_investment = investimento_fase2 * proportion
+                        breakdown_list += f"*   **{channel}:** {format_number(channel_investment, currency=True)} ({proportion:.1%})\\n"
+
                 fase2_content = f"""
 ## Fase 2: Expansão para Crescimento Acelerado (Próximos 2-3 Meses)
 
@@ -59,6 +66,8 @@ Com base na análise de oportunidade, recomendamos um plano de três fases para 
 *   **Investimento Mensal Recomendado:** {format_number(investimento_fase2, currency=True)}
 *   **Receita Total Projetada:** {format_number(receita_fase2, currency=True)}
 
+### Projeção de Investimento por Canal:
+{breakdown_list}
 **Objetivo:** Escalar o volume de resultados, aceitando um ROI marginal menor em troca de um ganho de receita total mais expressivo, até o limite da lucratividade.
 """
                 recommendations_content += fase2_content

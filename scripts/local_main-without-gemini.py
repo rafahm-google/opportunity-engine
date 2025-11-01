@@ -291,7 +291,7 @@ def main(config):
                 csv_filename = os.path.join(event_output_dir, f"{file_base_name}_presentation_data.csv")
                 presentation_df.to_csv(csv_filename, index=False, float_format='%.2f')
                 print(f"   ✅ SUCCESS! Comprehensive data saved to: {csv_filename}")
-                recommendations.generate_recommendations_file(results_data, scenarios_df, config, event_output_dir)
+                recommendations.generate_recommendations_file(results_data, scenarios_df, config, event_output_dir, channel_proportions)
                 successful_reports.append(csv_filename)
 
             except Exception as e:

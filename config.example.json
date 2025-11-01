@@ -1,0 +1,27 @@
+{
+  "advertiser_name": "Advertiser A",
+  "investment_file_path": "inputs/advertiser_a/investment-data.csv",
+  "performance_file_path": "inputs/advertiser_a/performance-data.csv",
+  "generic_trends_file_path": "inputs/advertiser_a/generic_trends.csv",
+  "average_ticket": 1000,
+  "conversion_rate_from_kpi_to_bo": 0.015,
+  "p_value_threshold": 0.1,
+  "increase_threshold_percent": 50,
+  "decrease_threshold_percent": 30,
+  "post_event_days": 14,
+  "column_mapping": {
+    "investment_file": {
+      "date_col": "dates",
+      "channel_col": "product_group",
+      "investment_col": "total_revenue"
+    },
+    "performance_file": {
+      "date_col": "date",
+      "kpi_col": "Sessions"
+    },
+    "generic_trends_file": {
+      "date_col": "Day",
+      "trends_col": "Ad Opportunities"
+    }
+  }
+}

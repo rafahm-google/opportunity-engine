@@ -309,7 +309,7 @@ def main(config):
                 html_report_filename = os.path.join(event_output_dir, f"gemini_report_{file_base_name}.html")
                 gemini_report.generate_html_report(gemini_client, results_data, config, image_paths, html_report_filename, market_analysis_df, analyzed_event['line_df'], scenarios_df, csv_output_filename=csv_filename, correlation_matrix=correlation_matrix)
 
-                recommendations.generate_recommendations_file(results_data, scenarios_df, config, event_output_dir)
+                recommendations.generate_recommendations_file(results_data, scenarios_df, config, event_output_dir, channel_proportions)
 
                 successful_reports.append(html_report_filename)
                 print(f"   ✅ SUCCESS! View the Gemini HTML report here: {html_report_filename}")

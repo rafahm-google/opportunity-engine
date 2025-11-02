@@ -16,69 +16,71 @@ def generate_recommendations_file(results_data, scenarios_df, config, output_dir
             return
 
         # Extract key data points from the scenarios dataframe
-        inflexion_point_df = scenarios_df[scenarios_df['Scenario'] == 'Ponto de Inflexão']
-        acelerado_point_df = scenarios_df[scenarios_df['Scenario'] == 'Crescimento Acelerado']
+        max_efficiency_point_df = scenarios_df[scenarios_df['Scenario'] == 'Máxima Eficiência']
+        strategic_limit_point_df = scenarios_df[scenarios_df['Scenario'] == 'Limite Estratégico']
 
-        if inflexion_point_df.empty:
-            print("   - ⚠️ WARNING: 'Ponto de Inflexão' not found. Cannot generate detailed recommendations.")
+        if max_efficiency_point_df.empty:
+            print("   - ⚠️ WARNING: 'Máxima Eficiência' point not found. Cannot generate detailed recommendations.")
             return
 
-        inflexion_point = inflexion_point_df.iloc[0]
-        investimento_fase1 = inflexion_point['Daily_Investment'] * 30
+        max_efficiency_point = max_efficiency_point_df.iloc[0]
+        investimento_fase1 = max_efficiency_point['Daily_Investment'] * 30
 
         # Start building the recommendation content
         recommendations_content = f"""
 # Plano de Ação Estratégico para {config['advertiser_name']}
 
-Com base na análise de oportunidade, recomendamos um plano de três fases para potencializar os resultados de investimento em mídia.
+Com base na análise da curva de saturação, identificamos uma **Zona de Crescimento Recomendada**, que representa o intervalo de investimento ideal para equilibrar eficiência e escala.
 
-## Fase 1: Otimização Inicial (Próximo Mês)
+O plano de ação sugerido é dividido em duas fases:
 
-**Ação:** Ajustar o investimento mensal para o **Ponto de Inflexão**, que representa o ponto de máxima eficiência (maior ROI marginal).
+## Fase 1: Otimização para Eficiência (Curto Prazo)
+
+**Ação:** Ajustar o investimento mensal para o ponto de **Máxima Eficiência**.
 
 *   **Investimento Mensal Recomendado:** {format_number(investimento_fase1, currency=True)}
 
-**Objetivo:** Operar no nível de investimento mais rentável, garantindo o maior retorno para cada real investido e estabelecendo uma base sólida para o crescimento.
+**Objetivo:** Operar no nível de investimento mais rentável, onde cada real investido gera o maior retorno possível. Esta é a base para um crescimento lucrativo e sustentável.
 """
 
         # Conditional logic for Fase 2
-        if not acelerado_point_df.empty:
-            acelerado_point = acelerado_point_df.iloc[0]
-            investimento_fase2 = acelerado_point['Daily_Investment'] * 30
+        if not strategic_limit_point_df.empty:
+            strategic_limit_point = strategic_limit_point_df.iloc[0]
+            investimento_fase2 = strategic_limit_point['Daily_Investment'] * 30
 
             if investimento_fase2 > investimento_fase1:
-                receita_fase2 = acelerado_point.get('Projected_Revenue', 0) * 30
+                receita_fase2 = strategic_limit_point.get('Projected_Revenue', 0) * 30
                 if receita_fase2 == 0:  # Fallback for non-revenue optimization
-                    receita_fase2 = (acelerado_point['Projected_Total_KPIs'] * config.get('conversion_rate_from_kpi_to_bo', 0) * config.get('average_ticket', 0)) * 30
+                    receita_fase2 = (strategic_limit_point['Projected_Total_KPIs'] * config.get('conversion_rate_from_kpi_to_bo', 0) * config.get('average_ticket', 0)) * 30
 
                 # Format channel breakdown
                 breakdown_list = ""
                 if channel_proportions:
+                    breakdown_list += "### Projeção de Investimento por Canal:\n"
                     for channel, proportion in channel_proportions.items():
                         channel_investment = investimento_fase2 * proportion
                         breakdown_list += f"*   **{channel}:** {format_number(channel_investment, currency=True)} ({proportion:.1%})\\n"
 
                 fase2_content = f"""
-## Fase 2: Expansão para Crescimento Acelerado (Próximos 2-3 Meses)
+## Fase 2: Escala Estratégica (Médio Prazo)
 
-**Ação:** Após estabilizar na Fase 1, aumentar progressivamente o investimento até atingir o ponto de **Crescimento Acelerado**.
+**Ação:** Após estabilizar na Fase 1, escalar o investimento progressivamente em direção ao **Limite Estratégico**.
 
 *   **Investimento Mensal Recomendado:** {format_number(investimento_fase2, currency=True)}
 *   **Receita Total Projetada:** {format_number(receita_fase2, currency=True)}
 
-### Projeção de Investimento por Canal:
 {breakdown_list}
-**Objetivo:** Escalar o volume de resultados, aceitando um ROI marginal menor em troca de um ganho de receita total mais expressivo, até o limite da lucratividade.
+**Objetivo:** Aumentar o volume de conversões e receita total, mantendo o retorno sobre o investimento (iROI) acima do mínimo aceitável de **{config.get('minimum_acceptable_iroi', 1.0)}**. Esta fase maximiza o crescimento dentro de uma zona de lucratividade controlada.
 """
                 recommendations_content += fase2_content
 
         # Fase 3 remains the same
         recommendations_content += """
-## Fase 3: Mensuração e Otimização Contínua
+## Fase 3: Monitoramento Contínuo
 
-**Ação:** Manter o investimento no nível ótimo alcançado e reavaliar os resultados continuamente.
+**Ação:** Manter o investimento dentro da **Zona de Crescimento Recomendada** e reavaliar a curva de resposta periodicamente.
 
-**Objetivo:** Garantir que o investimento permaneça no ponto de máxima eficiência, ajustando a estratégia conforme as mudanças do mercado para sustentar o crescimento e otimizar o ROI a longo prazo.
+**Objetivo:** Garantir que a estratégia de investimento permaneça otimizada, ajustando-se a mudanças de mercado, sazonalidade e concorrência para sustentar o crescimento e o ROI a longo prazo.
 
 ---
 

@@ -385,6 +385,8 @@ def run_opportunity_projection(kpi_df, daily_investment_df, market_trends_df, pr
 
         conversion_rate = config.get('conversion_rate_from_kpi_to_bo', 0)
         avg_ticket = config.get('average_ticket', 0)
+        minimum_acceptable_iroi = config.get('minimum_acceptable_iroi', 1.0)
+
 
         baseline_investment = hist_avg_investment
         baseline_kpi = hist_avg_kpi
@@ -409,17 +411,9 @@ def run_opportunity_projection(kpi_df, daily_investment_df, market_trends_df, pr
         else:
             baseline_point['Incremental_KPI'] = 0
         
-        response_curve_df_above_baseline = response_curve_df[response_curve_df['Incremental_Investment'] >= 0].copy()
-        
         baseline_point['Scenario'] = 'Cenário Atual'
 
-        if not response_curve_df_above_baseline.empty:
-            max_roi_index = response_curve_df_above_baseline['Incremental_ROI'].idxmax()
-            max_roi_point = response_curve_df_above_baseline.loc[max_roi_index].to_dict()
-            max_roi_point['Scenario'] = 'Máximo ROI'
-        else:
-            max_roi_point = None
-
+        # Find Point of Maximum Efficiency (the "knee" of the curve)
         scaler = MinMaxScaler()
         scaled_points = scaler.fit_transform(response_curve_df[['Daily_Investment', 'Projected_Total_KPIs']])
         line_vec = scaled_points[-1] - scaled_points[0]
@@ -430,18 +424,17 @@ def run_opportunity_projection(kpi_df, daily_investment_df, market_trends_df, pr
         vec_to_line = vec_from_first - vec_from_first_parallel
         dist_to_line = np.sqrt(np.sum(vec_to_line**2, axis=1))
         knee_index = np.argmax(dist_to_line)
-        max_roi_point = response_curve_df.loc[knee_index].to_dict()
-        max_roi_point['Scenario'] = 'Máximo ROI'
-        if 'Incremental_Revenue' in max_roi_point:
-            max_roi_point['Incremental_ROI'] = (max_roi_point['Incremental_Revenue'] / max_roi_point['Incremental_Investment']) if max_roi_point['Incremental_Investment'] > 0 else 0
+        max_efficiency_point = response_curve_df.loc[knee_index].to_dict()
+        max_efficiency_point['Scenario'] = 'Máxima Eficiência'
+        if 'Incremental_Revenue' in max_efficiency_point:
+            max_efficiency_point['Incremental_ROI'] = (max_efficiency_point['Incremental_Revenue'] / max_efficiency_point['Incremental_Investment']) if max_efficiency_point['Incremental_Investment'] > 0 else 0
 
-        # Crescimento Acelerado is the saturation point
-        accelerated_growth_point = None
-        if avg_ticket > 0:
-            profitable_df = response_curve_df[response_curve_df['Incremental_ROI'] > 1]
-            if not profitable_df.empty:
-                accelerated_growth_point = response_curve_df.loc[profitable_df['Daily_Investment'].idxmax()].to_dict()
-                accelerated_growth_point['Scenario'] = 'Crescimento Acelerado'
+        # Find Strategic Limit based on minimum acceptable iROI
+        strategic_limit_point = None
+        profitable_df = response_curve_df[response_curve_df['Incremental_ROI'] > minimum_acceptable_iroi]
+        if not profitable_df.empty:
+            strategic_limit_point = profitable_df.loc[profitable_df['Daily_Investment'].idxmax()].to_dict()
+            strategic_limit_point['Scenario'] = 'Limite Estratégico'
 
         
         # Find the diminishing return point (where the second derivative is maximal)
@@ -466,10 +459,10 @@ def run_opportunity_projection(kpi_df, daily_investment_df, market_trends_df, pr
             saturation_point = None
 
 
-        scenarios_df = pd.DataFrame([p for p in [baseline_point, max_roi_point, accelerated_growth_point, diminishing_return_point, saturation_point] if p is not None])
+        scenarios_df = pd.DataFrame([p for p in [baseline_point, max_efficiency_point, strategic_limit_point, diminishing_return_point, saturation_point] if p is not None])
         model_params = {'alpha': best_alpha, 'k': best_k, 's': best_s, 'scaler': max_kpi_scaler}
 
-        return response_curve_df, scenarios_df, baseline_point, max_roi_point, diminishing_return_point, saturation_point, accelerated_growth_point, model_params, channel_proportions
+        return response_curve_df, scenarios_df, baseline_point, max_efficiency_point, diminishing_return_point, saturation_point, strategic_limit_point, model_params, channel_proportions
 
     except Exception as e:
         import traceback

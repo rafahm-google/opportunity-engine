@@ -124,13 +124,19 @@ def save_sessions_bar_plot(sessions_bar_df, output_path, kpi_name='Sessions'):
     plt.savefig(output_path)
     plt.close(fig)
 
-def save_opportunity_curve_plot(response_curve_df, baseline_point, max_roi_point, inflection_point, saturation_point, output_path, kpi_name='Sessions', event_point=None, current_point=None, accelerated_growth_point=None, target_cpa_point=None):
+def save_opportunity_curve_plot(response_curve_df, baseline_point, max_efficiency_point, inflection_point, saturation_point, output_path, kpi_name='Sessions', event_point=None, current_point=None, strategic_limit_point=None, target_cpa_point=None):
     """Saves the opportunity curve plot to a file."""
     plt.style.use('seaborn-v0_8-whitegrid')
     fig, ax = plt.subplots(figsize=(18, 10))
 
     # Plot the main response curve
     ax.plot(response_curve_df['Daily_Investment'] * 30, response_curve_df['Projected_Total_KPIs'] * 30, label='Curva de Resposta Preditiva', color='royalblue', linewidth=2)
+
+    # --- New: Add shaded "Recommended Growth Zone" ---
+    if max_efficiency_point and strategic_limit_point:
+        ax.axvspan(max_efficiency_point['Daily_Investment'] * 30, 
+                   strategic_limit_point['Daily_Investment'] * 30, 
+                   color='green', alpha=0.1, label='Zona de Crescimento Recomendada')
 
     # Helper for formatting annotations
     def annotate_point(point, text, xytext, color, marker='o', size=100):
@@ -148,8 +154,8 @@ def save_opportunity_curve_plot(response_curve_df, baseline_point, max_roi_point
 
     # Annotate strategic points
     annotate_point(baseline_point, 'Cenário Atual', (0, -40), 'gray', marker='o', size=150)
-    annotate_point(max_roi_point, 'Máximo ROI', (0, 40), 'red', marker='*', size=200)
-    annotate_point(accelerated_growth_point, 'Crescimento Acelerado', (0, -40), 'green', marker='*', size=200)
+    annotate_point(max_efficiency_point, 'Máxima Eficiência', (0, 40), 'red', marker='*', size=200)
+    annotate_point(strategic_limit_point, 'Limite Estratégico', (0, -40), 'green', marker='*', size=200)
 
     if target_cpa_point:
         plt.scatter(target_cpa_point['Daily_Investment'], target_cpa_point['Projected_Total_KPIs'], color='cyan', zorder=5)

@@ -85,7 +85,31 @@ As mentioned in the `README.md`, you can add any number of custom time-series co
 
 The script's automated feature selection (`LassoCV`) will automatically evaluate the predictive power of your new covariates and include them in the model if they are deemed significant, improving the overall accuracy of the causal impact analysis.
 
-## 3. Analyzing a Single, Pre-Defined Event
+## 3. Defining Your Strategic Investment Limit
+
+A key feature of this analysis is the ability to define a **Strategic Limit** for your investment recommendations. This is controlled by the `minimum_acceptable_iroi` parameter in your `config.json`.
+
+*   `minimum_acceptable_iroi` (Incremental Return on Investment): This value sets the floor for what your business considers a worthwhile return on incremental ad spend. The script will find the maximum investment level where the iROI is still above this threshold.
+
+**How it Works:**
+- If you set `"minimum_acceptable_iroi": 1.5`, the "Strategic Limit" on the saturation curve will be the point where every additional R$ 1.00 invested still returns at least R$ 1.50.
+- If you set it to `1.0`, the limit will be the break-even point.
+
+This allows you to tailor the recommendations to your company's specific profitability and growth targets, moving beyond a purely mathematical optimization to a business-driven one.
+
+**Example:**
+```json
+{
+  "advertiser_name": "Advertiser A",
+  "average_ticket": 1000,
+  "conversion_rate_from_kpi_to_bo": 0.015,
+  "minimum_acceptable_iroi": 1.5,
+  "p_value_threshold": 0.1,
+  ...
+}
+```
+
+## 4. Analyzing a Single, Pre-Defined Event
 
 If you already know the specific dates of an event you want to analyze, you can bypass the automatic event detection entirely.
 

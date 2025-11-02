@@ -5,6 +5,8 @@
   "generic_trends_file_path": "inputs/advertiser_a/generic_trends.csv",
   "average_ticket": 1000,
   "conversion_rate_from_kpi_to_bo": 0.015,
+  "minimum_acceptable_iroi": 1.5,
+
   "p_value_threshold": 0.1,
   "increase_threshold_percent": 50,
   "decrease_threshold_percent": 30,

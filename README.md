@@ -23,7 +23,9 @@ The script automates a sophisticated marketing analytics workflow. Here’s a st
 
 3.  **Automated Feature Selection:** The model automatically selects the most relevant covariates to ensure accuracy. It uses `VarianceThreshold` to remove features with low variance and `LassoCV` to select only the most impactful predictors for the final model.
 
-4.  **Opportunity Projection:** After validating a significant event, the script generates a full diminishing returns curve. This curve models how the KPI is expected to respond to different levels of investment, identifying the "sweet spot"—the point of maximum ROI before returns start to diminish.
+4.  **Opportunity Projection:** After validating a significant event, the script generates a full diminishing returns curve. This curve models how the KPI is expected to respond to different levels of investment. Instead of just a single "sweet spot," the analysis now identifies a **"Recommended Growth Zone"** defined by two strategic points:
+    *   **Point of Maximum Efficiency (`Máxima Eficiência`):** The point on the curve where each incremental dollar invested yields the highest possible return. This is the most efficient level of investment.
+    *   **Strategic Limit (`Limite Estratégico`):** The maximum investment level that still meets the `minimum_acceptable_iroi` (Incremental Return on Investment) defined in your config. This point represents the upper bound of strategically sound investment, balancing growth with profitability.
 
 5.  **Report Generation:** The numerical results and charts are passed to the Gemini API, which generates a strategic, multi-page narrative in Brazilian Portuguese. This narrative is then assembled into a self-contained HTML report, with all charts embedded directly in the file.
 
@@ -107,6 +109,7 @@ Example `config.json` for `advertiser_a`:
   "generic_trends_file_path": "inputs/advertiser_a/generic_trends.csv",
   "average_ticket": 1000,
   "conversion_rate_from_kpi_to_bo": 0.015,
+  "minimum_acceptable_iroi": 1.5,
   "p_value_threshold": 0.1,
   "increase_threshold_percent": 50,
   "decrease_threshold_percent": 30,

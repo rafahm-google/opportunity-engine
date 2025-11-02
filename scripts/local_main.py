@@ -26,9 +26,10 @@ import google_api
 import presentation
 import recommendations
 import gemini_report
+import saturation_curve
 
 
-def _create_presentation_dataframe(causal_results, baseline_point, max_roi_point, diminishing_return_point, accelerated_growth_point, config, post_period, channel_proportions):
+def _create_presentation_dataframe(causal_results, baseline_point, max_efficiency_point, diminishing_return_point, strategic_limit_point, config, post_period, channel_proportions):
     """Creates a DataFrame with all data points for the presentation CSV."""
     presentation_data = {}
     conversion_rate = config.get('conversion_rate_from_kpi_to_bo', 0)
@@ -92,8 +93,9 @@ def _create_presentation_dataframe(causal_results, baseline_point, max_roi_point
 
     base_orders = baseline_point.get('Projected_Total_KPIs', 0) * conversion_rate
     presentation_data.update(process_scenario(baseline_point, 'atual'))
+    presentation_data.update(process_scenario(max_efficiency_point, 'maxima_eficiencia', base_orders))
     presentation_data.update(process_scenario(diminishing_return_point, 'inflex', base_orders))
-    presentation_data.update(process_scenario(accelerated_growth_point, 'acelerado', base_orders))
+    presentation_data.update(process_scenario(strategic_limit_point, 'limite_estrategico', base_orders))
 
     return pd.DataFrame(list(presentation_data.items()), columns=['Metrica', 'Valor'])
 
@@ -210,6 +212,8 @@ def main(config):
 
         if not analyzed_events:
             print("\n🏁 Analysis complete: No valid, impactful events were found.")
+            # Still run the global saturation analysis even if no events are found
+            saturation_curve.run_global_saturation_analysis(config)
             return
 
         analyzed_events.sort(key=lambda x: abs(x['results_data']['absolute_lift']), reverse=True)
@@ -239,39 +243,23 @@ def main(config):
             event_channels = [ch.strip() for ch in product_group_for_report.split(',')]
             filtered_investment_df = daily_investment_df[daily_investment_df['Product Group'].isin(event_channels)].copy()
 
-            # --- Use the cache ---
-            if product_group_for_report in projection_cache:
-                print(f"   - ✅ LOADING saturation model from cache for '{product_group_for_report}'.")
-                projection_results = projection_cache[product_group_for_report]
-            else:
-                print(f"   - ⚠️ saturation model not in cache for '{product_group_for_report}'. Training now...")
-                projection_results = analysis.run_opportunity_projection(
-                    kpi_df, filtered_investment_df, trends_df, product_group_for_report, config
-                )
-                projection_cache[product_group_for_report] = projection_results
-
-            full_response_curve_df, scenarios_df, baseline_point, max_roi_point, diminishing_return_point, saturation_point, accelerated_growth_point, _, channel_proportions = projection_results
+            # --- New: Generate event-specific saturation curves and get results ---
+            (
+                full_response_curve_df, scenarios_df, baseline_point, 
+                max_efficiency_point, diminishing_return_point, saturation_point, 
+                strategic_limit_point, model_params, channel_proportions
+            ) = saturation_curve.generate_event_saturation_curves(
+                kpi_df, filtered_investment_df, trends_df, config, 
+                product_group_for_report, event_output_dir
+            )
             
-            if max_roi_point is not None:
-                results_data['forecast'] = max_roi_point
+            if max_efficiency_point is not None:
+                results_data['forecast'] = max_efficiency_point
 
             try:
                 safe_pg_name = re.sub(r'[^\w-]', '_', product_group_for_report)
                 file_base_name = f"{config['advertiser_name']}_{safe_pg_name}_{event['intervention_date']}"
                 
-                def get_projected_kpi(investment, alpha, k, s, scaler):
-                    if alpha >= 1: alpha = 0.99
-                    adstocked = investment / (1 - alpha)
-                    saturated = analysis.hill_transform(adstocked, k, s)
-                    return saturated * scaler
-
-                event_investment = results_data.get('event_period_avg_investment', 0)
-                event_point = {
-                    'Scenario': 'Cenário do Evento',
-                    'Daily_Investment': event_investment,
-                    'Projected_Total_KPIs': get_projected_kpi(event_investment, **projection_model_params)
-                }
-
                 image_paths = {}
                 image_paths['accuracy'] = os.path.join(event_output_dir, f"accuracy_plot_{file_base_name}.png")
                 presentation.save_accuracy_plot(results_data, analyzed_event['accuracy_df'], image_paths['accuracy'], kpi_name=kpi_col)
@@ -285,23 +273,8 @@ def main(config):
                 image_paths['sessions'] = os.path.join(event_output_dir, f"sessions_chart_{file_base_name}.png")
                 presentation.save_sessions_bar_plot(analyzed_event['sessions_bar_df'], image_paths['sessions'], kpi_name=kpi_col)
 
-                if full_response_curve_df is not None:
-                    image_paths['opportunity'] = os.path.join(event_output_dir, f"opportunity_chart_{file_base_name}.png")
-                    presentation.save_opportunity_curve_plot(
-                        full_response_curve_df, 
-                        baseline_point, 
-                        max_roi_point, 
-                        diminishing_return_point,
-                        saturation_point,
-                        image_paths['opportunity'], 
-                        kpi_name=kpi_col,
-                        event_point=event_point,
-                        current_point=None,
-                        accelerated_growth_point=accelerated_growth_point
-                    )
-
                 # Generate and save the comprehensive presentation data CSV for this event
-                presentation_df = _create_presentation_dataframe(results_data, baseline_point, max_roi_point, diminishing_return_point, accelerated_growth_point, config, post_period, channel_proportions)
+                presentation_df = _create_presentation_dataframe(results_data, baseline_point, max_efficiency_point, diminishing_return_point, strategic_limit_point, config, post_period, channel_proportions)
                 csv_filename = os.path.join(event_output_dir, f"{file_base_name}_presentation_data.csv")
                 presentation_df.to_csv(csv_filename, index=False, float_format='%.2f')
                 print(f"   ✅ SUCCESS! Comprehensive data saved to: {csv_filename}")
@@ -325,6 +298,9 @@ def main(config):
                 print(f"   - {url}")
         else:
             print("\n\n🏁 Analysis complete: No events met all criteria for reporting.")
+
+        # --- New: Run Global Saturation Analysis at the end ---
+        saturation_curve.run_global_saturation_analysis(config)
 
     except FileNotFoundError as e:
         print(f"❌ ERROR: Input file not found. Please check the path in your config file. Details: {e}")

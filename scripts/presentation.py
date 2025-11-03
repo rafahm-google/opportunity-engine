@@ -149,26 +149,28 @@ def save_opportunity_curve_plot(response_curve_df, baseline_point, max_efficienc
                         textcoords="offset points", 
                         xytext=xytext, 
                         ha='center',
-                        fontsize=12,
+                        fontsize=14,  # Increased from 12
                         arrowprops=dict(arrowstyle="->", connectionstyle="arc3,rad=.2", color='black'))
 
     # Annotate strategic points
-    annotate_point(baseline_point, 'Cenário Atual', (0, -40), 'gray', marker='o', size=150)
-    annotate_point(max_efficiency_point, 'Máxima Eficiência', (0, 40), 'red', marker='*', size=200)
-    annotate_point(strategic_limit_point, 'Limite Estratégico', (0, -40), 'green', marker='*', size=200)
+    annotate_point(baseline_point, 'Cenário Atual', (0, -45), 'gray', marker='o', size=150)
+    annotate_point(max_efficiency_point, 'Máxima Eficiência', (0, 45), 'red', marker='*', size=200)
+    annotate_point(strategic_limit_point, 'Limite Estratégico', (0, -45), 'green', marker='*', size=200)
 
     if target_cpa_point:
         plt.scatter(target_cpa_point['Daily_Investment'], target_cpa_point['Projected_Total_KPIs'], color='cyan', zorder=5)
         plt.text(target_cpa_point['Daily_Investment'], target_cpa_point['Projected_Total_KPIs'], ' CPA Alvo', color='cyan')
 
-    ax.set_title('Curva de Resposta: Cenários Estratégicos de Investimento (Mensal)', fontsize=20, pad=20)
-    ax.set_xlabel('Investimento Mensal (R$)', fontsize=14)
-    ax.set_ylabel(f'{kpi_name} Projetado (Mensal)', fontsize=14)
+    ax.set_title('Curva de Resposta: Cenários Estratégicos de Investimento (Mensal)', fontsize=24, pad=20)  # Increased from 20
+    ax.set_xlabel('Investimento Mensal (R$)', fontsize=18)  # Increased from 14
+    ax.set_ylabel(f'{kpi_name} Projetado (Mensal)', fontsize=18)  # Increased from 14
     
     ax.xaxis.set_major_formatter(mticker.FuncFormatter(lambda x, p: f'R${int(x/1000)}k'))
     ax.yaxis.set_major_formatter(mticker.FuncFormatter(lambda y, p: f'{int(y/1000)}k'))
     
-    ax.legend()
+    ax.tick_params(axis='both', which='major', labelsize=12) # Increase tick label size
+    
+    ax.legend(fontsize=14) # Increase legend font size
     plt.tight_layout()
     plt.savefig(output_path)
     plt.close(fig)

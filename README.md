@@ -193,9 +193,9 @@ Execute the main script from the root directory, pointing to the configuration f
 python3 scripts/local_main.py --config inputs/advertiser_a/config.json
 ```
 
-**Example for Advertiser B:**
+**Example for Advertiser A, analyzing events only after January 1, 2025:**
 ```bash
-python3 scripts/local_main.py --config inputs/advertiser_b/config.json
+python3 scripts/local_main.py --config inputs/advertiser_a/config.json --min_intervention_date 2025-01-01
 ```
 
 The script will run the full analysis and generate all outputs (HTML reports, charts, and the advertiser-specific CSV log) in the `outputs/` directory.

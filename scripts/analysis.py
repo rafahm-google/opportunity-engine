@@ -469,3 +469,35 @@ def run_opportunity_projection(kpi_df, daily_investment_df, market_trends_df, pr
         print(f"❌ An error occurred in the sweet spot calculation: {e}")
         traceback.print_exc()
         return pd.DataFrame(), pd.DataFrame(), {}, {}, {}, {}, {}, {}, {}
+
+def get_kpi_for_investment(investment, model):
+    """Calculates the projected KPI for a single channel given an investment and a trained model."""
+    adstocked_inv = investment / (1 - model['alpha'])
+    saturated_response = hill_transform(adstocked_inv, model['k'], model['s'])
+    return saturated_response * model['scaler']
+
+def find_optimal_investment_split(channel_models, total_budget, steps=100):
+    """
+    Finds the optimal budget split across channels to maximize total KPI.
+    """
+    investment_split = {channel: 0 for channel in channel_models.keys()}
+    budget_step = total_budget / steps
+
+    for _ in range(steps):
+        marginal_gains = {}
+        for channel, model in channel_models.items():
+            current_investment = investment_split[channel]
+            current_kpi = get_kpi_for_investment(current_investment, model)
+            next_kpi = get_kpi_for_investment(current_investment + budget_step, model)
+            marginal_gain = next_kpi - current_kpi
+            marginal_gains[channel] = marginal_gain
+        
+        best_channel = max(marginal_gains, key=marginal_gains.get)
+        investment_split[best_channel] += budget_step
+
+    # Calculate the total KPI from the final optimal split
+    total_kpi = 0
+    for channel, investment in investment_split.items():
+        total_kpi += get_kpi_for_investment(investment, channel_models[channel])
+        
+    return investment_split, total_kpi

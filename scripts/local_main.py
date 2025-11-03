@@ -102,7 +102,7 @@ def _create_presentation_dataframe(causal_results, baseline_point, max_efficienc
 
 import data_preprocessor
 
-def main(config):
+def main(config, args):
     """Main execution block for the script."""
     
     load_dotenv()
@@ -212,7 +212,6 @@ def main(config):
 
         if not analyzed_events:
             print("\n🏁 Analysis complete: No valid, impactful events were found.")
-            # Still run the global saturation analysis even if no events are found
             saturation_curve.run_global_saturation_analysis(config)
             return
 
@@ -327,4 +326,4 @@ if __name__ == "__main__":
         print(f"❌ ERROR: Could not decode JSON from the configuration file '{args.config}'. Please check for syntax errors.")
         exit(1)
 
-    main(config)
+    main(config, args)

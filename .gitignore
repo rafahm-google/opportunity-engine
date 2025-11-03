@@ -44,3 +44,4 @@ scripts/*
 
 # Ignore sandbox files
 sandbox.py
+backup/

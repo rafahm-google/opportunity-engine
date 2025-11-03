@@ -4,9 +4,8 @@
   "performance_file_path": "inputs/advertiser_a/performance-data.csv",
   "generic_trends_file_path": "inputs/advertiser_a/generic_trends.csv",
   "average_ticket": 1000,
-  "conversion_rate_from_kpi_to_bo": 0.015,
   "minimum_acceptable_iroi": 1.5,
-
+  "investment_limit_factor": 1.5, // Optional: Limits scenarios to N times the max historical daily investment (e.g., 1.5 = 150%). Defaults to 2.0 if omitted.
   "p_value_threshold": 0.1,
   "increase_threshold_percent": 50,
   "decrease_threshold_percent": 30,

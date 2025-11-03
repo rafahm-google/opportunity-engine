@@ -377,8 +377,10 @@ def run_opportunity_projection(kpi_df, daily_investment_df, market_trends_df, pr
 
         best_alpha, best_k, best_s, max_kpi_scaler, hist_avg_investment, hist_avg_kpi, model_params, channel_proportions = _train_response_model(model_data, product_group)
         
+        # --- New: Use a configurable investment limit factor ---
+        investment_limit_factor = config.get('investment_limit_factor', 2.0)
         max_hist_inv = daily_investment_df['investment'].max()
-        investment_scenarios = np.linspace(1, max_hist_inv * 2, 200)
+        investment_scenarios = np.linspace(1, max_hist_inv * investment_limit_factor, 200)
         
         projected_kpis = [((hill_transform((inv / (1 - best_alpha)), best_k, best_s)) * max_kpi_scaler) for inv in investment_scenarios]
         response_curve_df = pd.DataFrame({'Daily_Investment': investment_scenarios, 'Projected_Total_KPIs': projected_kpis})
@@ -501,3 +503,4 @@ def find_optimal_investment_split(channel_models, total_budget, steps=100):
         total_kpi += get_kpi_for_investment(investment, channel_models[channel])
         
     return investment_split, total_kpi
+

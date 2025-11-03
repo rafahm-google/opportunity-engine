@@ -85,7 +85,32 @@ As mentioned in the `README.md`, you can add any number of custom time-series co
 
 The script's automated feature selection (`LassoCV`) will automatically evaluate the predictive power of your new covariates and include them in the model if they are deemed significant, improving the overall accuracy of the causal impact analysis.
 
-## 3. Defining Your Strategic Investment Limit
+## 3. Controlling the Aggressiveness of Recommendations
+
+By default, the analysis will explore investment scenarios up to 200% of your highest historical daily spend to find the mathematical optimum. While insightful, this can lead to recommendations for very large budget increases.
+
+To generate more conservative and realistic scenarios, you can add the optional `investment_limit_factor` to your `config.json`.
+
+-   `investment_limit_factor`: A number that multiplies your maximum historical daily investment to set an upper bound for the analysis.
+
+**How it Works:**
+-   If your highest daily spend was $10,000 and you set `"investment_limit_factor": 1.5`, the analysis will only explore budgets up to $15,000 per day.
+-   This forces the "Máxima Eficiência" and "Limite Estratégico" points to be found within a more plausible budget range.
+-   If you omit this parameter, it will default to `2.0` (200%).
+
+**Example:**
+```json
+{
+  "advertiser_name": "Advertiser A",
+  "average_ticket": 1000,
+  "minimum_acceptable_iroi": 1.5,
+  "investment_limit_factor": 1.5,
+  "p_value_threshold": 0.1,
+  ...
+}
+```
+
+## 4. Defining Your Strategic Investment Limit
 
 A key feature of this analysis is the ability to define a **Strategic Limit** for your investment recommendations. This is controlled by the `minimum_acceptable_iroi` parameter in your `config.json`.
 

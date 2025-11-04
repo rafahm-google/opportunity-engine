@@ -7,7 +7,7 @@ This Python application automates the generation of "Total Opportunity" case stu
 *   **Configuration Driven:** All parameters and file paths are managed in central `config.json` files.
 *   **Causal Impact Analysis:** Uses `statsmodels` to build a time-series model that isolates the incremental impact of marketing campaigns.
 *   **Automated Event Detection:** Scans investment data to automatically find periods of significant budget changes.
-*   **Dynamic Optimization:** The analysis can optimize for either revenue or orders based on the provided `average_ticket` value.
+*   **Configurable Optimization Goal:** The analysis can be explicitly set to optimize for either revenue (iROI) or conversions (iCPA) via the `optimization_target` setting in your config.
 *   **Strategic Reporting:** Generates a detailed HTML report with strategic narratives powered by the Gemini API, including a comprehensive diminishing returns curve.
 
 ---

@@ -64,28 +64,32 @@ def _create_presentation_dataframe(causal_results, baseline_point, max_efficienc
         inv = point.get('Daily_Investment', 0) * 30
         orders = point.get('Projected_Total_KPIs', 0) * conversion_rate
         cpa_total = inv / orders if orders > 0 else 0
-        inc_rev = point.get('Incremental_Revenue', 0) * 30
+        
         inc_inv = point.get('Incremental_Investment', 0) * 30
-        iroi = (inc_rev / inc_inv) if inc_inv > 0 else 0
-        inc_orders = orders - base_orders if base_orders > 0 else 0
+        inc_orders = point.get('Incremental_KPI', 0) * conversion_rate
         icpa = (inc_inv / inc_orders) if inc_orders > 0 else 0
         
         data = {
             f'proj_{name}_investimento_mensal': inv,
             f'proj_{name}_pedidos_totais': orders,
-            f'proj_{name}_receita_total': orders * avg_ticket,
             f'proj_{name}_cpa_total': cpa_total,
             f'proj_{name}_pedidos_incrementais': inc_orders,
-            f'proj_{name}_iroi': iroi,
             f'proj_{name}_icpa': icpa
         }
-        
-        # --- New Code: Split investment by channel ---
+
+        if config.get('optimization_target', 'REVENUE').upper() == 'REVENUE':
+            inc_rev = point.get('Incremental_Revenue', 0) * 30
+            iroi = (inc_rev / inc_inv) if inc_inv > 0 else 0
+            data[f'proj_{name}_receita_total'] = orders * avg_ticket
+            data[f'proj_{name}_iroi'] = iroi
+        else:
+            data[f'proj_{name}_receita_total'] = 0
+            data[f'proj_{name}_iroi'] = 0
+
         if channel_proportions:
             for channel, proportion in channel_proportions.items():
                 safe_channel_name = channel.replace(' ', '_').lower()
                 data[f'proj_{name}_investimento_mensal_{safe_channel_name}'] = inv * proportion
-        # --- End New Code ---
 
         return data
 

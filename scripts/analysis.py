@@ -377,7 +377,6 @@ def run_opportunity_projection(kpi_df, daily_investment_df, market_trends_df, pr
 
         best_alpha, best_k, best_s, max_kpi_scaler, hist_avg_investment, hist_avg_kpi, model_params, channel_proportions = _train_response_model(model_data, product_group)
         
-        # --- New: Use a configurable investment limit factor ---
         investment_limit_factor = config.get('investment_limit_factor', 2.0)
         max_hist_inv = daily_investment_df['investment'].max()
         investment_scenarios = np.linspace(1, max_hist_inv * investment_limit_factor, 200)
@@ -387,79 +386,77 @@ def run_opportunity_projection(kpi_df, daily_investment_df, market_trends_df, pr
 
         conversion_rate = config.get('conversion_rate_from_kpi_to_bo', 0)
         avg_ticket = config.get('average_ticket', 0)
-        minimum_acceptable_iroi = config.get('minimum_acceptable_iroi', 1.0)
-
-
-        baseline_investment = hist_avg_investment
-        baseline_kpi = hist_avg_kpi
-
-        if avg_ticket > 0:
-            # Revenue optimization
-            response_curve_df['Projected_Revenue'] = response_curve_df['Projected_Total_KPIs'] * conversion_rate * avg_ticket
-            baseline_revenue = hist_avg_kpi * conversion_rate * avg_ticket
-            response_curve_df['Incremental_Investment'] = response_curve_df['Daily_Investment'] - baseline_investment
-            response_curve_df['Incremental_Revenue'] = response_curve_df['Projected_Revenue'] - baseline_revenue
-            response_curve_df['Incremental_ROI'] = (response_curve_df['Incremental_Revenue'] / response_curve_df['Incremental_Investment']).fillna(0)
-        else:
-            # Conversion optimization
-            response_curve_df['Incremental_Investment'] = response_curve_df['Daily_Investment'] - baseline_investment
-            response_curve_df['Incremental_KPI'] = response_curve_df['Projected_Total_KPIs'] - baseline_kpi
-            response_curve_df['Incremental_ROI'] = (response_curve_df['Incremental_KPI'] / response_curve_df['Incremental_Investment']).fillna(0)
-
-        baseline_point = {'Daily_Investment': baseline_investment, 'Projected_Total_KPIs': baseline_kpi, 'Incremental_Investment': 0, 'Incremental_ROI': 0}
-        if avg_ticket > 0:
-            baseline_point['Projected_Revenue'] = baseline_revenue
-            baseline_point['Incremental_Revenue'] = 0
-        else:
-            baseline_point['Incremental_KPI'] = 0
         
-        baseline_point['Scenario'] = 'Cenário Atual'
+        baseline_point = {
+            'Scenario': 'Cenário Atual',
+            'Daily_Investment': hist_avg_investment,
+            'Projected_Total_KPIs': hist_avg_kpi,
+            'Incremental_Investment': 0, 'Incremental_KPI': 0, 'Incremental_Revenue': 0, 'Incremental_ROI': 0
+        }
+        baseline_investment = baseline_point['Daily_Investment']
+        baseline_kpi = baseline_point['Projected_Total_KPIs']
 
-        # Find Point of Maximum Efficiency (the "knee" of the curve)
+        response_curve_df['Incremental_Investment'] = response_curve_df['Daily_Investment'] - baseline_investment
+        response_curve_df['Incremental_KPI'] = response_curve_df['Projected_Total_KPIs'] - baseline_kpi
+        response_curve_df.loc[response_curve_df['Incremental_Investment'] < 0, 'Incremental_Investment'] = 0
+        response_curve_df.loc[response_curve_df['Incremental_KPI'] < 0, 'Incremental_KPI'] = 0
+
+        optimization_target = config.get('optimization_target', 'REVENUE').upper()
+
+        if optimization_target == 'REVENUE':
+            if avg_ticket <= 0:
+                raise ValueError("'average_ticket' must be greater than 0 for a REVENUE-based optimization.")
+            response_curve_df['Incremental_Revenue'] = response_curve_df['Incremental_KPI'] * conversion_rate * avg_ticket
+            response_curve_df['Incremental_ROI'] = (response_curve_df['Incremental_Revenue'] / response_curve_df['Incremental_Investment']).fillna(0)
+        else: # CONVERSIONS mode
+            response_curve_df['Incremental_Revenue'] = 0
+            response_curve_df['Incremental_ROI'] = 0
+            response_curve_df['CPA'] = (response_curve_df['Daily_Investment'] / response_curve_df['Projected_Total_KPIs']).fillna(0)
+            response_curve_df['iCPA'] = (response_curve_df['Incremental_Investment'] / response_curve_df['Incremental_KPI']).fillna(0)
+
         scaler = MinMaxScaler()
-        scaled_points = scaler.fit_transform(response_curve_df[['Daily_Investment', 'Projected_Total_KPIs']])
-        line_vec = scaled_points[-1] - scaled_points[0]
-        line_vec_norm = line_vec / np.sqrt(np.sum(line_vec**2))
-        vec_from_first = scaled_points - scaled_points[0]
-        scalar_proj = np.sum(vec_from_first * line_vec_norm, axis=1)
-        vec_from_first_parallel = np.outer(scalar_proj, line_vec_norm)
-        vec_to_line = vec_from_first - vec_from_first_parallel
-        dist_to_line = np.sqrt(np.sum(vec_to_line**2, axis=1))
-        knee_index = np.argmax(dist_to_line)
+        incremental_curve = response_curve_df[response_curve_df['Daily_Investment'] >= baseline_investment]
+        if len(incremental_curve) < 2:
+            knee_index = response_curve_df.index[-1]
+        else:
+            scaled_points = scaler.fit_transform(incremental_curve[['Daily_Investment', 'Projected_Total_KPIs']])
+            line_vec = scaled_points[-1] - scaled_points[0]
+            line_vec_norm = line_vec / np.sqrt(np.sum(line_vec**2))
+            vec_from_first = scaled_points - scaled_points[0]
+            scalar_proj = np.sum(vec_from_first * line_vec_norm, axis=1)
+            vec_from_first_parallel = np.outer(scalar_proj, line_vec_norm)
+            vec_to_line = vec_from_first - vec_from_first_parallel
+            dist_to_line = np.sqrt(np.sum(vec_to_line**2, axis=1))
+            knee_local_index = np.argmax(dist_to_line)
+            knee_index = incremental_curve.index[knee_local_index]
+
         max_efficiency_point = response_curve_df.loc[knee_index].to_dict()
         max_efficiency_point['Scenario'] = 'Máxima Eficiência'
-        if 'Incremental_Revenue' in max_efficiency_point:
-            max_efficiency_point['Incremental_ROI'] = (max_efficiency_point['Incremental_Revenue'] / max_efficiency_point['Incremental_Investment']) if max_efficiency_point['Incremental_Investment'] > 0 else 0
 
-        # Find Strategic Limit based on minimum acceptable iROI
+        first_derivative = np.gradient(response_curve_df['Projected_Total_KPIs'], response_curve_df['Daily_Investment'])
+        second_derivative = np.gradient(first_derivative)
+        diminishing_return_index = np.argmin(second_derivative)
+        diminishing_return_point = response_curve_df.loc[diminishing_return_index].to_dict()
+        diminishing_return_point['Scenario'] = 'Ponto de Inflexão'
+
         strategic_limit_point = None
-        profitable_df = response_curve_df[response_curve_df['Incremental_ROI'] > minimum_acceptable_iroi]
-        if not profitable_df.empty:
-            strategic_limit_point = profitable_df.loc[profitable_df['Daily_Investment'].idxmax()].to_dict()
-            strategic_limit_point['Scenario'] = 'Limite Estratégico'
+        if optimization_target == 'REVENUE':
+            min_iroi = config.get('minimum_acceptable_iroi', 1.0)
+            profitable_df = response_curve_df[response_curve_df['Incremental_ROI'] >= min_iroi]
+            if not profitable_df.empty:
+                strategic_limit_point_idx = profitable_df['Incremental_Investment'].idxmax()
+                strategic_limit_point = response_curve_df.loc[strategic_limit_point_idx].to_dict()
+                strategic_limit_point['Scenario'] = 'Limite Estratégico'
 
-        
-        # Find the diminishing return point (where the second derivative is maximal)
-        second_derivative = np.diff(response_curve_df['Projected_Total_KPIs'], 2)
-        diminishing_return_index = np.argmax(second_derivative) + 1 if len(second_derivative) > 0 else -1
-
-        if diminishing_return_index != -1:
-            diminishing_return_point = response_curve_df.loc[diminishing_return_index].to_dict()
-            diminishing_return_point['Scenario'] = 'Ponto de Inflexão'
-        else:
-            diminishing_return_point = None
-
-        # Find the saturation point (e.g., 95% of max response)
-        max_response = response_curve_df['Projected_Total_KPIs'].max()
-        saturation_threshold = 0.95 * max_response
-        saturation_df = response_curve_df[response_curve_df['Projected_Total_KPIs'] >= saturation_threshold]
-        
-        if not saturation_df.empty:
-            saturation_point = saturation_df.iloc[0].to_dict()
-            saturation_point['Scenario'] = 'Saturação'
-        else:
-            saturation_point = None
-
+        initial_marginal_gain = first_derivative[0]
+        saturation_threshold = initial_marginal_gain * 0.1
+        try:
+            saturation_index = np.where(first_derivative < saturation_threshold)[0][0]
+            saturation_point = response_curve_df.loc[saturation_index].to_dict()
+            saturation_point['Scenario'] = 'Ponto de Saturação'
+        except IndexError:
+            saturation_point = response_curve_df.iloc[-1].to_dict()
+            saturation_point['Scenario'] = 'Ponto de Saturação (Extrapolado)'
 
         scenarios_df = pd.DataFrame([p for p in [baseline_point, max_efficiency_point, strategic_limit_point, diminishing_return_point, saturation_point] if p is not None])
         model_params = {'alpha': best_alpha, 'k': best_k, 's': best_s, 'scaler': max_kpi_scaler}

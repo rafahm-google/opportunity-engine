@@ -67,23 +67,30 @@ If your trends file uses `data` for the date and `buscas` for the trend data:
 }
 ```
 
-## 2. Adding New Custom Covariates
+## 2. Choosing Your Optimization Goal
 
-As mentioned in the `README.md`, you can add any number of custom time-series covariates to the model. The process is:
+The analysis can be tailored to optimize for two different primary business goals: maximizing revenue or maximizing conversions (KPIs). You can control this with the `optimization_target` parameter in your `config.json`.
 
-1.  **Prepare your CSV file:** Ensure it has a `Date` column and one or more columns with your numeric data.
-2.  **Load and merge the data:** In `scripts/local_main.py`, load your CSV into a pandas DataFrame and merge it with the `market_trends_df` DataFrame. This should be done after `market_trends_df` is created (around line 80).
+-   `"optimization_target": "REVENUE"` (Default)
+    -   The analysis will focus on metrics like Revenue and iROI (Incremental Return on Investment).
+    -   This mode requires `"average_ticket"` to be set to a value greater than 0.
+    -   The "Strategic Limit" scenario will be calculated based on your `minimum_acceptable_iroi`.
 
-    ```python
-    # --- Add this block to local_main.py ---
-    # Load and merge custom covariate data
-    custom_covariate_df = pd.read_csv('inputs/advertiser_a/my_custom_data.csv')
-    custom_covariate_df['Date'] = pd.to_datetime(custom_covariate_df['Date'])
-    market_trends_df = pd.merge(market_trends_df, custom_covariate_df, on='Date', how='left').fillna(0)
-    # -----------------------------------------
-    ```
+-   `"optimization_target": "CONVERSIONS"`
+    -   Use this when you don't have a reliable average ticket or your goal is purely to maximize the number of conversions.
+    -   The analysis will focus on metrics like CPA (Cost Per Acquisition) and iCPA (Incremental Cost Per Acquisition).
+    -   The `"average_ticket"` parameter will be ignored.
+    -   The "Strategic Limit" scenario will not be calculated.
 
-The script's automated feature selection (`LassoCV`) will automatically evaluate the predictive power of your new covariates and include them in the model if they are deemed significant, improving the overall accuracy of the causal impact analysis.
+**Example:**
+```json
+{
+  "advertiser_name": "Advertiser B",
+  "optimization_target": "CONVERSIONS",
+  "p_value_threshold": 0.1,
+  ...
+}
+```
 
 ## 3. Controlling the Aggressiveness of Recommendations
 

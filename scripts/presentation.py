@@ -5,6 +5,7 @@ import os
 from datetime import datetime, timedelta
 import matplotlib.pyplot as plt
 import matplotlib.ticker as mticker
+from matplotlib.ticker import FuncFormatter
 import numpy as np
 
 # Add the scripts directory to the Python path to find the analysis module
@@ -124,56 +125,67 @@ def save_sessions_bar_plot(sessions_bar_df, output_path, kpi_name='Sessions'):
     plt.savefig(output_path)
     plt.close(fig)
 
-def save_opportunity_curve_plot(response_curve_df, baseline_point, max_efficiency_point, inflection_point, saturation_point, output_path, kpi_name='Sessions', event_point=None, current_point=None, strategic_limit_point=None, target_cpa_point=None):
-    """Saves the opportunity curve plot to a file."""
+def save_opportunity_curve_plot(response_curve_df, baseline_point, max_efficiency_point, 
+                                diminishing_return_point, saturation_point, filename, 
+                                kpi_name='Sessions', strategic_limit_point=None, config=None):
+    """Saves the saturation curve plot with key strategic points."""
+    
+    # --- New: Conditional formatting based on config ---
+    optimization_target = 'REVENUE'
+    if config:
+        optimization_target = config.get('optimization_target', 'REVENUE').upper()
+
+    if optimization_target == 'REVENUE':
+        x_label = 'Investimento Mensal (R$)'
+        formatter = 'R${:,.0f}'
+        unit_formatter = lambda x: f'R${x/1e6:.1f}M' if x >= 1e6 else f'R${x/1e3:.0f}k'
+    else: # CONVERSIONS
+        x_label = 'Investimento Mensal'
+        formatter = '{:,.0f}'
+        unit_formatter = lambda x: f'{x/1e6:.1f}M' if x >= 1e6 else f'{x/1e3:.0f}k'
+    # --- End New ---
+
     plt.style.use('seaborn-v0_8-whitegrid')
     fig, ax = plt.subplots(figsize=(18, 10))
 
-    # Plot the main response curve
-    ax.plot(response_curve_df['Daily_Investment'] * 30, response_curve_df['Projected_Total_KPIs'] * 30, label='Curva de Resposta Preditiva', color='royalblue', linewidth=2)
+    # Monthly conversion
+    response_curve_df['Monthly_Investment'] = response_curve_df['Daily_Investment'] * 30
+    response_curve_df['Monthly_KPIs'] = response_curve_df['Projected_Total_KPIs'] * 30
 
-    # --- New: Add shaded "Recommended Growth Zone" ---
-    if max_efficiency_point and strategic_limit_point:
-        ax.axvspan(max_efficiency_point['Daily_Investment'] * 30, 
-                   strategic_limit_point['Daily_Investment'] * 30, 
-                   color='green', alpha=0.1, label='Zona de Crescimento Recomendada')
+    ax.plot(response_curve_df['Monthly_Investment'], response_curve_df['Monthly_KPIs'], 
+            label='Curva de Resposta Preditiva', color='royalblue', linewidth=2)
 
-    # Helper for formatting annotations
-    def annotate_point(point, text, xytext, color, marker='o', size=100):
-        if point and point['Daily_Investment'] is not None:
+    def plot_point(point, color, label, marker='o', size=100, ha='center', va='bottom', offset=(0, 10)):
+        if point and all(k in point for k in ['Daily_Investment', 'Projected_Total_KPIs']):
             monthly_inv = point['Daily_Investment'] * 30
             monthly_kpi = point['Projected_Total_KPIs'] * 30
-            ax.scatter(monthly_inv, monthly_kpi, label=text, color=color, marker=marker, s=size, zorder=5)
-            ax.annotate(f"{text}\n{format_number(monthly_inv, currency=True)}", 
-                        (monthly_inv, monthly_kpi), 
-                        textcoords="offset points", 
-                        xytext=xytext, 
-                        ha='center',
-                        fontsize=14,  # Increased from 12
-                        arrowprops=dict(arrowstyle="->", connectionstyle="arc3,rad=.2", color='black'))
+            ax.scatter(monthly_inv, monthly_kpi, color=color, s=size, label=label, marker=marker, zorder=5)
+            ax.annotate(f'{label}\n{unit_formatter(monthly_inv)}', 
+                        (monthly_inv, monthly_kpi),
+                        textcoords="offset points",
+                        xytext=offset,
+                        ha=ha, va=va,
+                        arrowprops=dict(arrowstyle="->", color='black'))
 
-    # Annotate strategic points
-    annotate_point(baseline_point, 'Cenário Atual', (0, -45), 'gray', marker='o', size=150)
-    annotate_point(max_efficiency_point, 'Máxima Eficiência', (0, 45), 'red', marker='*', size=200)
-    annotate_point(strategic_limit_point, 'Limite Estratégico', (0, -45), 'green', marker='*', size=200)
+    plot_point(baseline_point, 'gray', 'Cenário Atual', marker='o', size=150, ha='right', va='top', offset=(-10, -10))
+    plot_point(max_efficiency_point, 'red', 'Máxima Eficiência', marker='*', size=200, ha='left', va='bottom', offset=(10, 10))
+    
+    if strategic_limit_point and optimization_target == 'REVENUE':
+        plot_point(strategic_limit_point, 'green', 'Limite Estratégico', marker='X', size=150, ha='center', va='bottom', offset=(0, 15))
 
-    if target_cpa_point:
-        plt.scatter(target_cpa_point['Daily_Investment'], target_cpa_point['Projected_Total_KPIs'], color='cyan', zorder=5)
-        plt.text(target_cpa_point['Daily_Investment'], target_cpa_point['Projected_Total_KPIs'], ' CPA Alvo', color='cyan')
-
-    ax.set_title('Curva de Resposta: Cenários Estratégicos de Investimento (Mensal)', fontsize=24, pad=20)  # Increased from 20
-    ax.set_xlabel('Investimento Mensal (R$)', fontsize=18)  # Increased from 14
-    ax.set_ylabel(f'{kpi_name} Projetado (Mensal)', fontsize=18)  # Increased from 14
+    ax.set_title('Curva de Resposta: Cenários Estratégicos de Investimento (Mensal)', fontsize=20, pad=20)
+    ax.set_xlabel(x_label, fontsize=16, labelpad=15)
+    ax.set_ylabel(f'{kpi_name} Projetado (Mensal)', fontsize=16, labelpad=15)
     
-    ax.xaxis.set_major_formatter(mticker.FuncFormatter(lambda x, p: f'R${int(x/1000)}k'))
-    ax.yaxis.set_major_formatter(mticker.FuncFormatter(lambda y, p: f'{int(y/1000)}k'))
+    ax.xaxis.set_major_formatter(FuncFormatter(lambda x, p: unit_formatter(x).replace('R$', 'R$ ')))
+    ax.yaxis.set_major_formatter(FuncFormatter(lambda y, p: f'{y/1000:,.0f}k' if y > 0 else '0'))
     
-    ax.tick_params(axis='both', which='major', labelsize=12) # Increase tick label size
-    
-    ax.legend(fontsize=14) # Increase legend font size
+    ax.legend(fontsize=14, loc='upper left')
+    plt.tick_params(axis='both', which='major', labelsize=12)
     plt.tight_layout()
-    plt.savefig(output_path)
+    plt.savefig(filename, dpi=300)
     plt.close(fig)
+    print(f"   - ✅ Chart saved to {filename}")
 
 def generate_comprehensive_presentation_data():
     """

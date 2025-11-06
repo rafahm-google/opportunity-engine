@@ -103,17 +103,29 @@ Inside each advertiser's directory (e.g., `inputs/advertiser_a/`), create a `con
 Example `config.json` for `advertiser_a`:
 ```json
 {
-  "advertiser_name": "Advertiser A",
-  "investment_file_path": "inputs/advertiser_a/investment-data.csv",
-  "performance_file_path": "inputs/advertiser_a/performance-data.csv",
-  "generic_trends_file_path": "inputs/advertiser_a/generic_trends.csv",
-  "average_ticket": 1000,
-  "conversion_rate_from_kpi_to_bo": 0.015,
-  "minimum_acceptable_iroi": 1.5,
+  "advertiser_name": "Generic Advertiser",
+  "client_industry": "Retail",
+  "client_business_goal": "increase online sales.",
+  "primary_business_metric_name": "Conversions",
+  "investment_file_path": "inputs/generic_advertiser/investment-data.csv",
+  "performance_file_path": "inputs/generic_advertiser/performance-data.csv",
+  "generic_trends_file_path": "inputs/generic_advertiser/generic_trends.csv",
+  "output_directory": "outputs/",
+  "performance_kpi_column": "Sessions",
+  "product_group_filter": null,
+  "average_ticket": 100,
+  "conversion_rate_from_kpi_to_bo": 0.05,
+  "minimum_acceptable_iroi": 2.0,
+  "optimization_target": "REVENUE",
+  "investment_limit_factor": 1.5,
   "p_value_threshold": 0.1,
+  "r_squared_threshold": 0.6,
   "increase_threshold_percent": 50,
   "decrease_threshold_percent": 30,
   "post_event_days": 14,
+  "max_adstock_days": 7,
+  "max_events_to_analyze": 5,
+  "date_format": "%Y-%m-%d",
   "column_mapping": {
     "investment_file": {
       "date_col": "dates",
@@ -142,7 +154,6 @@ This file should contain daily investment data, broken down by product group. Th
     *   `date_col`: The date of the investment (e.g., `YYYY-MM-DD`).
     *   `channel_col`: The name of the marketing channel or campaign (e.g., `YouTube Brand`, `Google Search`).
     *   `investment_col`: The total amount invested on that day for that product group.
-    *   It is also expected a column with the advertiser name.
 
 *   **Example:**
     ```csv
@@ -186,19 +197,36 @@ This file provides market-level data to be used as a covariate in the model. The
 
 ## How to Run
 
-Execute the main script from the root directory, pointing to the configuration file for the advertiser you wish to analyze.
+This project has two primary execution scripts, allowing you to choose between the full analysis with an AI-generated narrative or a data-only analysis.
 
-**Example for Advertiser A:**
+### 1. Full Report with Gemini API
+
+To generate the complete, multi-page HTML report including the strategic narrative, run the `local_main.py` script. This requires a valid `GEMINI_API_KEY` in your `.env` file.
+
+**Example:**
 ```bash
 python3 scripts/local_main.py --config inputs/advertiser_a/config.json
 ```
 
-**Example for Advertiser A, analyzing events only after January 1, 2025:**
+### 2. Data-Only Analysis (Without Gemini)
+
+If you do not have an API key or only need the raw quantitative outputs (CSVs and chart images), run the `local_main-without-gemini.py` script. This will perform the complete causal analysis and generate all data files and charts, but will not create the final HTML report.
+
+**Example:**
+```bash
+python3 scripts/local_main-without-gemini.py --config inputs/advertiser_a/config.json
+```
+
+### Additional Options
+
+You can also specify a minimum date for the events you wish to analyze, which is useful for focusing on recent campaigns.
+
+**Example analyzing events only after January 1, 2025:**
 ```bash
 python3 scripts/local_main.py --config inputs/advertiser_a/config.json --min_intervention_date 2025-01-01
 ```
 
-The script will run the full analysis and generate all outputs (HTML reports, charts, and the advertiser-specific CSV log) in the `outputs/` directory.
+The script will run the full analysis and generate all outputs in the `outputs/` directory, as specified in your configuration.
 
 ---
 

@@ -66,10 +66,10 @@ def load_and_prepare_data(config):
         }, inplace=True)
 
         # --- Date Formatting ---
-        date_formats = config.get('date_formats', {})
-        kpi_df['Date'] = pd.to_datetime(kpi_df['Date'], format=date_formats.get('performance'), errors='coerce')
-        daily_investment_df['Date'] = pd.to_datetime(daily_investment_df['Date'], format=date_formats.get('investment'), errors='coerce')
-        trends_df['Date'] = pd.to_datetime(trends_df['Date'], format=date_formats.get('trends'), errors='coerce')
+        date_format = config.get('date_format', None)
+        kpi_df['Date'] = pd.to_datetime(kpi_df['Date'], format=date_format, errors='coerce')
+        daily_investment_df['Date'] = pd.to_datetime(daily_investment_df['Date'], format=date_format, errors='coerce')
+        trends_df['Date'] = pd.to_datetime(trends_df['Date'], format=date_format, errors='coerce')
 
         # --- Data Cleaning & Validation ---
         kpi_df.dropna(subset=['Date', 'Sessions'], inplace=True)

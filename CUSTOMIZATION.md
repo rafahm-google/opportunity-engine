@@ -8,6 +8,8 @@ The most common customization is adapting the script to read CSV files with diff
 
 This object is divided into three sections: `investment_file`, `performance_file`, and `generic_trends_file`.
 
+**Note on Date Columns:** Regardless of the original column names you specify for `date_col` in each section, the script will automatically standardize them into a single column named `Date` after loading the data. This ensures internal consistency during the analysis.
+
 ### a. Investment Data
 
 In the `investment_file` section of the `column_mapping`, you can specify the names for the date, channel, and investment columns.

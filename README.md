@@ -238,8 +238,8 @@ The script generates two main types of outputs inside the `outputs/` directory:
 
 For each significant event found, a detailed HTML report is generated. These reports are self-contained and include all charts and the strategic narrative from the Gemini API.
 
-- **Location:** `outputs/<advertiser_name>/<event_date>/`
-- **Example:** `outputs/Advertiser_A/2025-05-05/gemini_report_Advertiser_A_YouTube_Brand_2025-05-05.html`
+- **Location:** `outputs/<advertiser_name>/<product_group>/<event_date>/`
+- **Example:** `outputs/Advertiser_A/YouTube_Brand/2025-05-05/gemini_report_Advertiser_A_YouTube_Brand_2025-05-05.html`
 
 Each event folder also contains the individual charts (`.png` files) used in the report.
 

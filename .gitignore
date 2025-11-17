@@ -5,21 +5,9 @@ venv/
 __pycache__/
 *.pyc
 
-# Environment variables
-.env
-
 # IDE-specific files
 .vscode/
 .idea/
-
-# Advertiser data and output files
-inputs/
-outputs/
-*.csv
-*.png
-*.html
-*.xlsx
-*.pdf
 
 # Ignore all scripts by default
 scripts/*

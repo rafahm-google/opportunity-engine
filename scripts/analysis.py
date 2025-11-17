@@ -46,7 +46,7 @@ def create_calendar_features(df):
 
 
 
-def find_events(df, company_name, increase_ratio, decrease_ratio, post_event_days, pre_selection_pool_size=30):
+def find_events(df, company_name, increase_ratio, decrease_ratio, post_event_days, pre_selection_pool_size=30, output_dir='.'):
     """
     Finds all significant investment changes, groups overlapping events into a single
     consolidated event per week, and saves the final map to a CSV.
@@ -120,7 +120,9 @@ def find_events(df, company_name, increase_ratio, decrease_ratio, post_event_day
 
         event_map_df = pd.DataFrame(consolidated_events).sort_values(by='date')
         
-        output_path = 'detected_events.csv'
+        import os
+        output_path = os.path.join(output_dir, 'detected_events.csv')
+        os.makedirs(output_dir, exist_ok=True)
         event_map_df.to_csv(output_path, index=False)
         print(f"   - ✅ Successfully saved {len(event_map_df)} consolidated event(s) to {output_path}")
         
@@ -366,6 +368,7 @@ def run_opportunity_projection(kpi_df, daily_investment_df, market_trends_df, pr
     Trains a new response model on all data and then finds the optimal investment sweet spot.
     """
     print("\n" + "="*50 + "\n🎯 Finding the Investment Sweet Spot & Projecting Opportunity...\n" + "="*50)
+    optimization_target = config.get('optimization_target', 'REVENUE').upper()
     
     try:
         investment_pivot_df = daily_investment_df.pivot_table(index='Date', columns='Product Group', values='investment').fillna(0)
@@ -393,6 +396,9 @@ def run_opportunity_projection(kpi_df, daily_investment_df, market_trends_df, pr
             'Projected_Total_KPIs': hist_avg_kpi,
             'Incremental_Investment': 0, 'Incremental_KPI': 0, 'Incremental_Revenue': 0, 'Incremental_ROI': 0
         }
+        if optimization_target == 'REVENUE':
+            baseline_point['Projected_Revenue'] = hist_avg_kpi * conversion_rate * avg_ticket
+
         baseline_investment = baseline_point['Daily_Investment']
         baseline_kpi = baseline_point['Projected_Total_KPIs']
 
@@ -406,7 +412,8 @@ def run_opportunity_projection(kpi_df, daily_investment_df, market_trends_df, pr
         if optimization_target == 'REVENUE':
             if avg_ticket <= 0:
                 raise ValueError("'average_ticket' must be greater than 0 for a REVENUE-based optimization.")
-            response_curve_df['Incremental_Revenue'] = response_curve_df['Incremental_KPI'] * conversion_rate * avg_ticket
+            response_curve_df['Projected_Revenue'] = response_curve_df['Projected_Total_KPIs'] * conversion_rate * avg_ticket
+            response_curve_df['Incremental_Revenue'] = response_curve_df['Projected_Revenue'] - (baseline_kpi * conversion_rate * avg_ticket)
             response_curve_df['Incremental_ROI'] = (response_curve_df['Incremental_Revenue'] / response_curve_df['Incremental_Investment']).fillna(0)
         else: # CONVERSIONS mode
             response_curve_df['Incremental_Revenue'] = 0

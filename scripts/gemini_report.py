@@ -187,7 +187,7 @@ def generate_html_report(gemini_client, results_data, config, image_paths, outpu
         scenarios_table_html = f'<table class="scenarios-table"><tr>{header}</tr>'
         
         # Filter for the three key scenarios for the table
-        scenarios_to_include = ['Cenário Atual', 'Ponto de Inflexão', 'Crescimento Acelerado']
+        scenarios_to_include = ['Cenário Atual', 'Máxima Eficiência', 'Limite Estratégico']
         filtered_scenarios_df = scenarios_df[scenarios_df['Scenario'].isin(scenarios_to_include)]
 
         # Build table directly from the filtered scenarios_df to ensure data integrity
@@ -199,7 +199,7 @@ def generate_html_report(gemini_client, results_data, config, image_paths, outpu
                 formatted_row = row_template.format(
                     Scenario=row['Scenario'],
                     inv_monthly=format_number(row['Daily_Investment'] * 30, currency=True),
-                    proj_rev=format_number(row['Projected_Revenue'] * 30, currency=True),
+                    proj_rev=format_number(row.get('Projected_Revenue', 0) * 30, currency=True),
                     roi=row.get('Incremental_ROI', 0),
                     inc_inv=format_number(inc_investment, currency=True),
                     inc_rev=format_number(inc_revenue_or_orders, currency=True)

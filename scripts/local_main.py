@@ -136,9 +136,13 @@ def main(config, args):
         increase_ratio = 1 + (config['increase_threshold_percent'] / 100)
         decrease_ratio = 1 - (config['decrease_threshold_percent'] / 100)
 
+        base_output_dir = os.path.join(os.getcwd(), config['output_directory'])
+        advertiser_name = config.get('advertiser_name', 'default_advertiser')
+        brand_output_dir = os.path.join(base_output_dir, advertiser_name)
+
         event_map_df, _, _ = analysis.find_events(
             daily_investment_df, config['advertiser_name'], increase_ratio, 
-            decrease_ratio, config['post_event_days']
+            decrease_ratio, config['post_event_days'], output_dir=brand_output_dir
         )
 
         if event_map_df is None or event_map_df.empty:
@@ -275,6 +279,11 @@ def main(config, args):
 
                 image_paths['sessions'] = os.path.join(event_output_dir, f"sessions_chart_{file_base_name}.png")
                 presentation.save_sessions_bar_plot(analyzed_event['sessions_bar_df'], image_paths['sessions'], kpi_name=kpi_col)
+
+                # --- New: Add path for the opportunity curve plot ---
+                opportunity_plot_name = 'combined_event_saturation_curve.png' if len(product_group_for_report.split(',')) > 1 else f'{product_group_for_report.replace(" ", "_")}_saturation_curve.png'
+                image_paths['opportunity'] = os.path.join(event_output_dir, 'saturation_curves', opportunity_plot_name)
+                # --- End New ---
 
                 # Generate and save the comprehensive presentation data CSV for this event
                 presentation_df = _create_presentation_dataframe(results_data, baseline_point, max_efficiency_point, diminishing_return_point, strategic_limit_point, config, post_period, channel_proportions)

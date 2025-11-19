@@ -31,3 +31,6 @@ __pycache__/
 # Ignore sandbox files
 sandbox.py
 backup/
+# Sensitive data and inputs
+detected_events.csv
+inputs/

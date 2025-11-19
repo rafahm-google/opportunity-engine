@@ -45,65 +45,38 @@ def generate_event_saturation_curves(kpi_df, daily_investment_df, trends_df, con
             config=config
         )
         
-        event_channels = [ch.strip() for ch in product_group_for_report.split(',')]
-        if len(event_channels) > 1:
-            print(f"   - Optimizing budget split for the {len(event_channels)} channels in the event...")
-            channel_models = {}
-            for channel in event_channels:
-                try:
-                    channel_investment_df = daily_investment_df[daily_investment_df['Product Group'] == channel]
-                    _, _, _, _, _, _, _, individual_model_params, _ = analysis.run_opportunity_projection(
-                        kpi_df, channel_investment_df, trends_df, channel, config
-                    )
-                    if individual_model_params:
-                        channel_models[channel] = individual_model_params
-                except Exception as e:
-                    print(f"   - ⚠️ WARNING: Could not generate model for individual channel '{channel}' during optimization. Details: {e}")
-
-            if channel_models:
-                avg_ticket = config.get('average_ticket', 0)
-                baseline_total_investment = baseline_point.get('Daily_Investment', 0)
-                baseline_total_kpi = baseline_point.get('Projected_Total_KPIs', 0)
-
-                for scenario_name in ['Máxima Eficiência', 'Limite Estratégico']:
-                    target_scenario_row = scenarios_df[scenarios_df['Scenario'] == scenario_name]
-                    if target_scenario_row.empty: continue
-
-                    total_budget = target_scenario_row.iloc[0]['Daily_Investment']
-                    optimal_split, new_total_kpi = analysis.find_optimal_investment_split(channel_models, total_budget)
-                    
-                    scenarios_df.loc[scenarios_df['Scenario'] == scenario_name, 'Projected_Total_KPIs'] = new_total_kpi
-                    
-                    comparison_data = []
-                    for channel, model in channel_models.items():
-                        channel_proportion = channel_proportions.get(channel, 0)
-                        current_investment = baseline_total_investment * channel_proportion
-                        current_kpi = baseline_total_kpi * channel_proportion
-                        
-                        new_investment = optimal_split.get(channel, 0)
-                        projected_kpi = analysis.get_kpi_for_investment(new_investment, model)
-                        
-                        inc_kpi = projected_kpi - current_kpi
-                        inc_investment = new_investment - current_investment
-                        inc_revenue = inc_kpi * avg_ticket if avg_ticket > 0 else 0
-                        inc_roi = (inc_revenue / inc_investment) if inc_investment > 0 else 0
-
-                        comparison_data.append({
-                            'Canal': channel, 'Investimento Atual': current_investment * 30, 'KPI Atual': current_kpi * 30,
-                            'Novo Investimento': new_investment * 30, 'KPI Projetado': projected_kpi * 30,
-                            'KPI Incremental': inc_kpi * 30, 'Receita Incremental': inc_revenue * 30, 'iROI': inc_roi
-                        })
-                    
-                    if comparison_data:
-                        comparison_df = pd.DataFrame(comparison_data)
-                        markdown_content += f"\n\n### Análise Detalhada por Canal: {scenario_name}\n\n"
-                        markdown_content += comparison_df.to_markdown(index=False, floatfmt=",.2f")
+        # --- Build the Detailed Investment Breakdown Table ---
+        scenarios_to_process = ['Cenário Atual', 'Máxima Eficiência', 'Limite Estratégico']
         
-        # --- This section needs to be adapted based on the new logic ---
-        # The new logic will be more complex and will be implemented in the next steps.
-        # For now, we will just create a placeholder for the markdown content.
-        
-        final_markdown = f"# Análise da Curva de Saturação Mensal para o Evento\n\n## Cenários para: {product_group_for_report}\n\n" + markdown_content
+        if channel_proportions:
+            header = "| Canal | " + " | ".join(scenarios_to_process) + " |\n"
+            separator = "|:---| " + " | ".join([":---" for _ in scenarios_to_process]) + " |\n"
+            
+            body = ""
+            sorted_channels = sorted(channel_proportions.keys())
+
+            for channel in sorted_channels:
+                row = f"| **{channel}** |"
+                proportion = channel_proportions.get(channel, 0)
+                
+                for scenario_name in scenarios_to_process:
+                    scenario_row = scenarios_df[scenarios_df['Scenario'] == scenario_name]
+                    if not scenario_row.empty:
+                        total_investment = scenario_row['Daily_Investment'].iloc[0] * 30
+                        channel_investment = total_investment * proportion
+                        row += f" {presentation.format_number(channel_investment, currency=True)} |"
+                    else:
+                        row += " N/A |"
+                body += row + "\n"
+
+            investment_table = f"### Detalhamento do Investimento por Canal\n\n{header}{separator}{body}"
+        else:
+            investment_table = "### Detalhamento do Investimento por Canal\n\nNão foi possível calcular a divisão de investimento por canal.\n"
+
+        # --- Assemble Final Content ---
+        final_markdown = f"# Análise da Curva de Saturação Mensal para o Evento\n\n## Cenários para: {product_group_for_report}\n\n"
+        final_markdown += scenarios_df.to_markdown(index=False) + "\n\n"
+        final_markdown += investment_table
 
         saturation_filepath = os.path.join(event_output_dir, 'SATURATION_CURVE.md')
         with open(saturation_filepath, 'w', encoding='utf-8') as f:
@@ -133,45 +106,13 @@ def run_global_saturation_analysis(config):
         
         all_scenarios = []
         
-        channel_models = {}
-        all_channels = daily_investment_df['Product Group'].unique()
-        print(f"   - Found {len(all_channels)} unique channels to analyze: {', '.join(all_channels)}")
-
-        for channel in all_channels:
-            print(f"     - Analyzing individual channel: {channel}")
-            try:
-                channel_investment_df = daily_investment_df[daily_investment_df['Product Group'] == channel]
-                
-                (
-                    full_response_curve_df, scenarios_df, baseline_point, max_efficiency_point, 
-                    diminishing_return_point, saturation_point, strategic_limit_point, model_params, _
-                ) = analysis.run_opportunity_projection(
-                    kpi_df, channel_investment_df, trends_df, channel, config
-                )
-                
-                channel_models[channel] = model_params
-
-
-                if full_response_curve_df is not None and not full_response_curve_df.empty:
-                    safe_channel_name = channel.replace(' ', '_')
-                    plot_filename = os.path.join(output_dir, f'{safe_channel_name}_saturation_curve.png')
-                    presentation.save_opportunity_curve_plot(
-                        full_response_curve_df, baseline_point, max_efficiency_point, 
-                        diminishing_return_point, saturation_point, plot_filename, 
-                        kpi_name=config.get('performance_kpi_column', 'Sessions'),
-                        strategic_limit_point=strategic_limit_point,
-                        config=config
-                    )
-                    
-                    scenarios_df['Channel'] = channel
-                    all_scenarios.append(scenarios_df)
-            except Exception as e:
-                print(f"   - ⚠️ WARNING: Could not generate saturation curve for individual channel {channel}. Details: {e}")
-
         investment_split_table = None
         optimized_split_table = None
         baseline_point_global = None
         channel_proportions_global = None
+
+        all_channels = [ch for ch in daily_investment_df['Product Group'].unique() if ch != 'Other']
+        print(f"   - Found {len(all_channels)} unique channels to analyze: {', '.join(all_channels)}")
 
         if len(all_channels) > 1:
             print("     - Analyzing combination of all channels...")
@@ -182,6 +123,8 @@ def run_global_saturation_analysis(config):
                 ) = analysis.run_opportunity_projection(
                     kpi_df, daily_investment_df, trends_df, ", ".join(all_channels), config
                 )
+                print(f"   - DEBUG: full_response_curve_df empty: {full_response_curve_df.empty if full_response_curve_df is not None else True}")
+                print(f"   - DEBUG: scenarios_df empty: {scenarios_df.empty if scenarios_df is not None else True}")
                 
                 if full_response_curve_df is not None and not full_response_curve_df.empty:
                     plot_filename = os.path.join(output_dir, 'combined_all_channels_saturation_curve.png')
@@ -210,39 +153,35 @@ def run_global_saturation_analysis(config):
                         investment_split_table = split_df.to_markdown(index=False, floatfmt=",.2f")
                     # --- End New Code ---
 
-            except Exception as e:
-                print(f"   - ⚠️ WARNING: Could not generate combined saturation curve for all channels. Details: {e}")
-
-            # --- New Code: Generate Optimized Scenarios ---
-            optimized_split_table = None
-            if channel_models and all_scenarios:
-                print("     - Optimizing budget allocation for each scenario...")
-                optimized_scenarios_data = []
-                
-                # Get the scenario points from the 'Total Combinado' group
-                combined_scenarios_df = pd.concat(all_scenarios, ignore_index=True)
-                combined_scenarios_df = combined_scenarios_df[combined_scenarios_df['Channel'] == 'Total Combinado']
-
-                for _, scenario_row in combined_scenarios_df.iterrows():
-                    total_budget = scenario_row['Daily_Investment']
-                    if total_budget > 0:
-                        optimal_split, new_total_kpi = analysis.find_optimal_investment_split(
-                            channel_models, total_budget
-                        )
+                    # --- New Scenario: Optimal Historical Mix ---
+                    optimal_historical_mix = analysis.find_optimal_historical_mix(kpi_df, daily_investment_df)
+                    historical_optimal_split_table = None
+                    if optimal_historical_mix:
+                        split_data_optimal = []
+                        scenarios_to_process = ['Máxima Eficiência', 'Limite Estratégico']
+                        for _, row in scenarios_df[scenarios_df['Scenario'].isin(scenarios_to_process)].iterrows():
+                            scenario_investment = row['Daily_Investment'] * 30
+                            split_row = {'Cenário': row['Scenario']}
+                            for channel, proportion in optimal_historical_mix.items():
+                                # Ensure the channel exists in the proportions before allocating
+                                if channel in channel_proportions_global:
+                                    split_row[f'Investimento {channel}'] = scenario_investment * proportion
+                            split_data_optimal.append(split_row)
                         
-                        optimized_row = {'Cenário': scenario_row['Scenario']}
-                        optimized_row['KPI Otimizado Mensal'] = new_total_kpi * 30
-                        for channel, investment in optimal_split.items():
-                            optimized_row[f'Investimento {channel}'] = investment * 30
-                        optimized_scenarios_data.append(optimized_row)
+                        if split_data_optimal:
+                            optimal_split_df = pd.DataFrame(split_data_optimal)
+                            # Fill any missing channel columns with 0 to avoid errors
+                            for channel in channel_proportions_global.keys():
+                                if f'Investimento {channel}' not in optimal_split_df.columns:
+                                    optimal_split_df[f'Investimento {channel}'] = 0
+                            historical_optimal_split_table = optimal_split_df.to_markdown(index=False, floatfmt=",.2f")
+                    # --- End New Scenario ---
 
-                if optimized_scenarios_data:
-                    optimized_df = pd.DataFrame(optimized_scenarios_data)
-                    avg_ticket = config.get('average_ticket', 0)
-                    if avg_ticket > 0:
-                        optimized_df['Receita Otimizada Mensal'] = optimized_df['KPI Otimizado Mensal'] * avg_ticket
-                    optimized_split_table = optimized_df.to_markdown(index=False, floatfmt=",.2f")
-            # --- End New Code ---
+            except Exception as e:
+                import traceback
+                print(f"   - ⚠️ WARNING: Could not generate combined saturation curve for all channels. Details: {e}")
+                traceback.print_exc()
+
 
 
 
@@ -280,48 +219,74 @@ def run_global_saturation_analysis(config):
                 markdown_content += display_df.to_markdown(index=False, floatfmt=",.2f")
                 markdown_content += "\n\n"
 
-                if channel_name == 'Total Combinado' and investment_split_table:
-                    markdown_content += "### Divisão de Investimento Mensal por Canal (Baseado no Histórico)\n\n"
-                    markdown_content += investment_split_table
-                    markdown_content += "\n\n"
+                if channel_name == 'Total Combinado':
+                    if investment_split_table:
+                        markdown_content += "### Divisão de Investimento Mensal por Canal (Baseado no Histórico)\n\n"
+                        markdown_content += investment_split_table
+                        markdown_content += "\n\n"
+                    if historical_optimal_split_table:
+                        markdown_content += "### Divisão de Investimento Mensal por Canal (Baseado no Mix de Máxima Eficiência Histórica)\n\n"
+                        markdown_content += historical_optimal_split_table
+                        markdown_content += "\n\n"
 
-            if channel_models and baseline_point_global and channel_proportions_global:
-                avg_ticket = config.get('average_ticket', 0)
-                baseline_total_investment = baseline_point_global.get('Daily_Investment', 0)
-                baseline_total_kpi = baseline_point_global.get('Projected_Total_KPIs', 0)
-                combined_scenarios_df = full_scenarios_df[full_scenarios_df['Channel'] == 'Total Combinado']
+                markdown_content += """
 
-                for scenario_name in ['Máxima Eficiência', 'Limite Estratégico']:
-                    target_scenario = combined_scenarios_df[combined_scenarios_df['Scenario'] == scenario_name]
-                    if target_scenario.empty: continue
+## Como a Distribuição de Investimento é Calculada
 
-                    total_budget = target_scenario.iloc[0]['Daily_Investment']
-                    optimal_split, _ = analysis.find_optimal_investment_split(channel_models, total_budget)
-                    
-                    comparison_data = []
-                    for channel, model in channel_models.items():
-                        channel_proportion = channel_proportions_global.get(channel, 0)
-                        current_investment = baseline_total_investment * channel_proportion
-                        current_kpi = analysis.get_kpi_for_investment(current_investment, model)
-                        
-                        new_investment = optimal_split.get(channel, 0)
-                        projected_kpi = analysis.get_kpi_for_investment(new_investment, model)
-                        
-                        inc_kpi = projected_kpi - current_kpi
-                        inc_investment = new_investment - current_investment
-                        inc_revenue = inc_kpi * avg_ticket if avg_ticket > 0 else 0
-                        inc_roi = (inc_revenue / inc_investment) if inc_investment > 0 else 0
+Para cada cenário, a distribuição do investimento entre os canais é feita da seguinte forma:
 
-                        comparison_data.append({
-                            'Canal': channel, 'Investimento Atual': current_investment * 30, 'KPI Atual': current_kpi * 30,
-                            'Novo Investimento': new_investment * 30, 'KPI Projetado': projected_kpi * 30,
-                            'KPI Incremental': inc_kpi * 30, 'Receita Incremental': inc_revenue * 30, 'iROI': inc_roi
-                        })
-                    
-                    if comparison_data:
-                        comparison_df = pd.DataFrame(comparison_data)
-                        markdown_content += f"\n\n### Análise Detalhada por Canal: {scenario_name}\n\n"
-                        markdown_content += comparison_df.to_markdown(index=False, floatfmt=",.2f")
+### 1. Cenário Atual
+- **Orçamento:** Utiliza o nível de investimento total atual.
+- **Distribuição:** O orçamento é dividido entre os canais com base na **média histórica geral** de investimento. Analisamos todo o histórico de seus dados de investimento e calculamos a porcentagem que foi para cada canal (ex: 40% para Search, 30% para PMAX, etc.).
+
+### 2. Cenário Otimizado (Máxima Eficiência)
+- **Orçamento:** Utiliza o nível de investimento de "Máxima Eficiência", que é o ponto na curva de resposta que oferece o melhor retorno possível sobre o investimento.
+- **Distribuição:** A divisão é **orientada por dados**, baseada nos seus períodos históricos de maior sucesso. Para encontrar o "Mix Ótimo", seguimos estes passos:
+    1. Calculamos uma **pontuação de eficiência semanal** (KPIs divididos pelo Investimento).
+    2. Para considerar o atraso do marketing e encontrar períodos de sucesso *sustentado*, usamos uma **média móvel de 4 semanas** dessa pontuação de eficiência.
+    3. Identificamos as **10 melhores semanas** que tiveram a maior média de eficiência.
+    4. Finalmente, calculamos a média da combinação de investimento *apenas desses períodos de melhor desempenho*. Isso se torna o "Mix Ótimo".
+
+### 3. Cenário Estratégico (Limite Estratégico)
+- **Orçamento:** Utiliza o nível de investimento de "Limite Estratégico", um orçamento mais alto projetado para o crescimento máximo, mesmo que isso signifique um ROI marginalmente menor.
+- **Distribuição:** Utiliza o **mesmo "Mix Ótimo"** que foi calculado para o Cenário Otimizado.
+
+"""
+
+            # --- Generate Donut Chart Visualization ---
+            donut_scenarios = []
+            # 1. Current Scenario (using historical average mix)
+            if baseline_point_global and channel_proportions_global:
+                current_total_investment = baseline_point_global.get('Daily_Investment', 0) * 30
+                donut_scenarios.append({
+                    'title': 'Cenário Atual',
+                    'data': {ch: current_total_investment * p for ch, p in channel_proportions_global.items()}
+                })
+
+            # 2. Max Efficiency Scenario (using optimal historical mix)
+            max_eff_row = scenarios_df[scenarios_df['Scenario'] == 'Máxima Eficiência']
+            if not max_eff_row.empty and optimal_historical_mix:
+                max_eff_investment = max_eff_row.iloc[0]['Daily_Investment'] * 30
+                donut_scenarios.append({
+                    'title': 'Cenário Otimizado',
+                    'data': {ch: max_eff_investment * p for ch, p in optimal_historical_mix.items() if ch in channel_proportions_global}
+                })
+
+            # 3. Strategic Limit Scenario (using optimal historical mix)
+            strategic_limit_row = scenarios_df[scenarios_df['Scenario'] == 'Limite Estratégico']
+            if not strategic_limit_row.empty and optimal_historical_mix:
+                strategic_limit_investment = strategic_limit_row.iloc[0]['Daily_Investment'] * 30
+                donut_scenarios.append({
+                    'title': 'Cenário Estratégico',
+                    'data': {ch: strategic_limit_investment * p for ch, p in optimal_historical_mix.items() if ch in channel_proportions_global}
+                })
+            
+            if donut_scenarios:
+                donut_filename = os.path.join(output_dir, 'investment_distribution_donuts.png')
+                presentation.save_investment_distribution_donuts(donut_scenarios, donut_filename)
+                markdown_content += "### Visualização da Distribuição de Investimento\n\n"
+                markdown_content += f"![Distribuição de Investimento](./investment_distribution_donuts.png)\n\n"
+
 
             saturation_filepath = os.path.join(output_dir, 'SATURATION_CURVE.md')
             with open(saturation_filepath, 'w', encoding='utf-8') as f:

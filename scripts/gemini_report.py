@@ -15,9 +15,6 @@ from presentation import format_number
 
 def _get_image_as_base64(path):
     """Reads an image file and returns it as a base64 encoded string."""
-
-def _get_image_as_base64(path):
-    """Reads an image file and returns it as a base64 encoded string."""
     try:
         with open(path, "rb") as image_file:
             return base64.b64encode(image_file.read()).decode('utf-8')
@@ -29,7 +26,9 @@ def _get_image_as_base64(path):
         return None
 
 def _generate_full_report_narrative(gemini_client, results_data, config, market_analysis_df, scenarios_df, csv_output_filename=None, correlation_matrix=None):
-    """Generates the entire report narrative with a single, comprehensive prompt."""
+    """
+    Generates the entire report narrative with a single, comprehensive prompt.
+    """
     print("   - Generating full strategic narrative with Gemini...")
 
     # --- 1. Prepare all data for the prompt ---
@@ -140,7 +139,7 @@ A matriz de correlação entre o investimento diário total e os KPIs de negóci
         print(f"   - ❌ ERROR: Could not generate or parse the full narrative from Gemini. Details: {e}")
         return json.loads(json_schema.replace('...', 'Error generating content.'))
 
-def generate_html_report(gemini_client, results_data, config, image_paths, output_filename, market_analysis_df, causal_impact_df, scenarios_df, csv_output_filename=None, correlation_matrix=None):
+def generate_html_report(gemini_client, results_data, config, image_paths, output_filename, market_analysis_df, causal_impact_df, scenarios_df, channel_proportions, csv_output_filename=None, correlation_matrix=None):
     """
     Generates a self-contained HTML report using the AI-generated narrative.
     """
@@ -158,6 +157,16 @@ def generate_html_report(gemini_client, results_data, config, image_paths, outpu
     business_impact_revenue = business_impact_sales * avg_ticket
 
     # --- 4. Build HTML Components ---
+
+    # --- New: Channel Proportions Table ---
+    channel_proportions_html = ""
+    if channel_proportions:
+        channel_proportions_html = '<table class="scenarios-table"><tr><th>Canal</th><th>Proporção de Investimento Recomendada</th></tr>'
+        sorted_channels = sorted(channel_proportions.items(), key=lambda item: item[1], reverse=True)
+        for channel, proportion in sorted_channels:
+            channel_proportions_html += f"<tr><td>{channel}</td><td>{proportion:.2%}</td></tr>"
+        channel_proportions_html += "</table>"
+    # --- End New ---
     
     # --- DYNAMIC LOGIC for Table ---
     scenarios_table_html = ""
@@ -242,7 +251,7 @@ def generate_html_report(gemini_client, results_data, config, image_paths, outpu
         <title>{report_title}</title>
         <style>
             body {{ font-family: 'Google Sans', 'Helvetica Neue', sans-serif; margin: 0; background-color: #f8f9fa; color: #3c4043; }}
-            .container {{ max-width: 900px; margin: 40px auto; padding: 20px; background-color: #ffffff; border-radius: 8px; box-shadow: 0 1px 3px rgba(0,0,0,0.12), 0 1px 2px rgba(0,0,0,0.24); }}
+            .container {{ max-width: 900px; margin: 40px auto; padding: 20px; background-color: #ffffff; border-radius: 8px; box-shadow: 0 1px 3px rgba(0,0,0,.12), 0 1px 2px rgba(0,0,0,.24); }}
             .header {{ background-color: #4285F4; color: white; padding: 20px; border-radius: 8px 8px 0 0; }}
             .header h1 {{ margin: 0; font-size: 24px; }}
             .section {{ padding: 20px; border-bottom: 1px solid #e0e0e0; }}
@@ -291,6 +300,8 @@ def generate_html_report(gemini_client, results_data, config, image_paths, outpu
                     <h3>{highlight_title}</h3>
                     <p>{highlight_narrative}</p>
                 </div>
+                <h3>Mix de Canais Recomendado (Cenário de Máxima Eficiência)</h3>
+                {channel_proportions_html}
                 <h3>{strategic_rationale_title}</h3>
                 <p>{strategic_rationale_narrative}</p>
             </div>
@@ -337,6 +348,7 @@ def generate_html_report(gemini_client, results_data, config, image_paths, outpu
         strategic_rationale_narrative=narrative.get('part3_investment_opportunity', {}).get('strategic_rationale_narrative', ''),
         next_steps_html=next_steps_html,
         scenarios_table_html=scenarios_table_html,
+        channel_proportions_html=channel_proportions_html,
         line_img=image_b64s.get('line', ''),
         investment_img=image_b64s.get('investment', ''),
         sessions_img=image_b64s.get('sessions', ''),
@@ -357,3 +369,247 @@ def generate_html_report(gemini_client, results_data, config, image_paths, outpu
         print(f"   - ✅ Gemini HTML report saved successfully.")
     except Exception as e:
         print(f"   - ❌ ERROR: Could not write HTML report to file. Details: {e}")
+
+
+def generate_global_gemini_report(gemini_client, config, donut_scenarios=None, total_investment=None):
+    """
+    Generates a dedicated Gemini report for the global saturation analysis.
+    """
+    print("\n" + "="*50 + "\n📄 Generating Global Gemini Report...\n" + "="*50)
+    
+    advertiser_name = config.get('advertiser_name', 'default_advertiser')
+    global_output_dir = os.path.join(os.getcwd(), config['output_directory'], advertiser_name, 'global_saturation_analysis')
+    
+    # --- 1. Define paths and read artifacts ---
+    markdown_path = os.path.join(global_output_dir, 'SATURATION_CURVE.md')
+    response_curve_path = os.path.join(global_output_dir, 'combined_all_channels_saturation_curve.png')
+    donuts_path = os.path.join(global_output_dir, 'investment_distribution_donuts.png')
+    
+    try:
+        with open(markdown_path, 'r', encoding='utf-8') as f:
+            markdown_content = f.read()
+    except FileNotFoundError:
+        print(f"   - ❌ ERROR: Could not find SATURATION_CURVE.md at {markdown_path}. Halting global report generation.")
+        return
+
+    image_b64s = {
+        "response_curve": _get_image_as_base64(response_curve_path),
+        "donuts": _get_image_as_base64(donuts_path)
+    }
+
+    # --- 2. Define the JSON structure for Gemini ---
+    json_schema = """
+    {{
+      "report_title": "A concise, executive-level title for the global marketing strategy report.",
+      "executive_summary": "A high-level summary of the key findings and the main strategic recommendation.",
+      "analysis_of_scenarios": {{
+        "introduction": "A paragraph introducing the three investment scenarios (Current, Optimized, Strategic).",
+        "scenario_table": [
+          {{
+            "scenario_name": "Atual (Média Histórica)",
+            "analysis": "An analysis of the 'Atual (Média Histórica)' scenario, explaining its performance and investment mix based on the historical average."
+          }},
+          {{
+            "scenario_name": "Otimizado (Pico de Eficiência)",
+            "analysis": "An analysis of the 'Otimizado (Pico de Eficiência)' scenario, highlighting the efficiency gains from adopting the investment mix from peak performance weeks."
+          }},
+          {{
+            "scenario_name": "Estratégico (Modelo de Elasticidade)",
+            "analysis": "An analysis of the 'Estratégico (Modelo de Elasticidade)' scenario, explaining the rationale for the budget allocation based on the model's long-term contribution findings."
+          }}
+        ]
+      }},
+      "strategic_recommendations": [
+        { "recommendation": "A primary, actionable recommendation based on the analysis." },
+        { "recommendation": "A secondary, actionable recommendation." }
+      ]
+    }}
+    """
+
+    # --- 3. Construct the prompt ---
+    prompt = f"""
+    Como um estrategista de marketing sênior do Google, sua tarefa é criar um relatório executivo de estratégia de marketing global para {advertiser_name}.
+    O relatório deve ser conciso, focado em insights acionáveis e totalmente em Português do Brasil (pt-BR).
+    Sua saída deve ser um único objeto JSON válido, correspondendo ao esquema fornecido abaixo. Não inclua texto antes ou depois do JSON.
+
+    **DADOS PARA ANÁLISE:**
+
+    **1. Relatório Markdown com Tabelas de Cenários:**
+    ```markdown
+    {markdown_content}
+    ```
+
+    **2. Visualizações Chave:**
+    - A primeira imagem é a 'Curva de Resposta', mostrando o KPI projetado em diferentes níveis de investimento mensal.
+    - A segunda imagem é a 'Distribuição de Investimento (Donuts)', comparando o mix de canais para os três cenários.
+
+    **SUA TAREFA:**
+    Analise os dados e as imagens para gerar uma narrativa coesa e perspicaz. O foco é a clareza e a concisão para um público executivo.
+
+    **ESTRUTURA DE SAÍDA JSON OBRIGATÓRIA:**
+    ```json
+    {json_schema}
+    ```
+    """
+
+    # --- 4. Call Gemini API ---
+    try:
+        model = genai.GenerativeModel('gemini-1.5-pro')
+        response = gemini_client.generate_content(prompt)
+        cleaned_response_text = response.text.strip().replace('```json\n', '').replace('\n```', '')
+        narrative = json.loads(cleaned_response_text)
+        print("   - ✅ Global narrative generated and parsed successfully.")
+    except Exception as e:
+        print(f"   - ❌ ERROR: Could not generate or parse the global narrative from Gemini. Details: {e}")
+        return
+
+    # --- 5. Assemble HTML Report ---
+    output_filename = os.path.join(global_output_dir, 'global_report.html')
+    
+    # --- New: Dynamically build the scenarios analysis table ---
+    scenarios_analysis_html = '<table class="scenarios-table"><tr><th>Cenário</th><th>Análise</th></tr>'
+    scenario_table_data = narrative.get('analysis_of_scenarios', {}).get('scenario_table', [])
+    for row in scenario_table_data:
+        scenarios_analysis_html += f"<tr><td><strong>{row.get('scenario_name', '')}</strong></td><td>{row.get('analysis', '')}</td></tr>"
+    scenarios_analysis_html += "</table>"
+    # --- End New ---
+
+    # --- New: Build detailed channel mix table ---
+    channel_mix_html = ""
+    if donut_scenarios:
+        all_channels = sorted([
+            ch for ch in set(ch for s in donut_scenarios for ch in s['data'].keys())
+            if ch != 'Other'
+        ])
+        header = "<th>Canal</th>" + "".join(f"<th>{s['title']}</th>" for s in donut_scenarios)
+        
+        rows = ""
+        for channel in all_channels:
+            row = f"<tr><td><strong>{channel}</strong></td>"
+            for s in donut_scenarios:
+                value = s['data'].get(channel, 0)
+                total_scenario_investment = sum(s['data'].values())
+
+                # If the data is ratios (like for 'Atual'), calculate the absolute value
+                if total_scenario_investment > 0 and total_scenario_investment <= 10 and total_investment:
+                    absolute_value = value * total_investment
+                    percentage = value
+                # If the data is already absolute
+                else:
+                    absolute_value = value
+                    if total_scenario_investment > 0:
+                        percentage = value / total_scenario_investment
+                    else:
+                        percentage = 0
+                
+                # Handle cases where a channel might be missing or zero
+                if absolute_value == 0:
+                    cell_content = "R$ 0 (0.00%)"
+                else:
+                    cell_content = f"R$ {absolute_value:,.0f} ({percentage:.2%})"
+
+                row += f"<td>{cell_content}</td>"
+            row += "</tr>"
+            rows += row
+            
+        channel_mix_html = f"""
+        <h3>Detalhamento do Mix de Canais</h3>
+        <table class="scenarios-table">
+            <thead><tr>{header}</tr></thead>
+            <tbody>{rows}</tbody>
+        </table>
+        """
+    # --- End New ---
+
+    # Define CSS styles separately
+    css_styles = r"""
+    body { font-family: 'Google Sans', 'Helvetica Neue', sans-serif; margin: 0; background-color: #f8f9fa; color: #3c4043; }
+    .container { max-width: 1000px; margin: 40px auto; padding: 20px; background-color: #ffffff; border-radius: 8px; box-shadow: 0 1px 3px rgba(0,0,0,.12), 0 1px 2px rgba(0,0,0,.24); }
+    .header { background-color: #1a73e8; color: white; padding: 20px; border-radius: 8px 8px 0 0; text-align: center; }
+    .header h1 { margin: 0; font-size: 26px; }
+    .section { padding: 25px; border-bottom: 1px solid #e0e0e0; }
+    .section:last-child { border-bottom: none; }
+    .section h2 { font-size: 22px; color: #1a73e8; margin-top: 0; }
+    .section h3 { font-size: 18px; color: #3c4043; margin-top: 20px; }
+    .section p, .section li { font-size: 16px; line-height: 1.7; }
+    .chart-container { text-align: center; margin: 25px 0; }
+    .chart-container img { max-width: 100%; height: auto; border: 1px solid #e0e0e0; border-radius: 4px; }
+    .footer { text-align: center; padding: 20px; font-size: 12px; color: #5f6368; }
+    .recommendations ul { list-style-type: none; padding-left: 0; }
+    .recommendations li { background-color: #e8f0fe; border-left: 4px solid #4285f4; padding: 15px; margin-bottom: 10px; border-radius: 4px; }
+    .scenarios-table { width: 100%; border-collapse: collapse; margin-top: 20px; }
+    .scenarios-table th, .scenarios-table td { border: 1px solid #e0e0e0; padding: 12px; text-align: left; vertical-align: top; }
+    .scenarios-table th { background-color: #f2f2f2; font-weight: bold; }
+    """
+
+    html_template = """
+    <!DOCTYPE html>
+    <html lang="pt-BR">
+    <head>
+        <meta charset="UTF-8">
+        <title>{report_title}</title>
+        <style>
+            {css_styles}
+        </style>
+    </head>
+    <body>
+        <div class="container">
+            <div class="header"><h1>{report_title}</h1></div>
+
+            <div class="section">
+                <h2>Sumário Executivo</h2>
+                <p>{executive_summary}</p>
+            </div>
+
+            <div class="section">
+                <h2>Análise da Curva de Resposta Global</h2>
+                <p>O gráfico abaixo ilustra a relação entre o investimento total de marketing e o retorno projetado em KPIs. Ele nos ajuda a identificar os pontos ótimos de investimento para maximizar a eficiência e o crescimento.</p>
+                <div class="chart-container"><img src="data:image/png;base64,{response_curve_img}" alt="Gráfico da Curva de Resposta Global"></div>
+            </div>
+
+            <div class="section">
+                <h2>Distribuição de Investimento por Cenário</h2>
+                <p>Os gráficos de rosca abaixo detalham a alocação de orçamento para cada um dos três cenários, ilustrando as mudanças estratégicas no mix de canais de "always-on" (Atual e Estratégico) para campanhas de pico de performance (Otimizado).</p>
+                <div class="chart-container"><img src="data:image/png;base64,{donuts_img}" alt="Gráficos de Rosca da Distribuição de Investimento"></div>
+                {channel_mix_html}
+            </div>
+
+            <div class="section">
+                <h2>Análise Comparativa dos Cenários de Investimento</h2>
+                <p>{scenarios_intro}</p>
+                {scenarios_analysis_html}
+            </div>
+
+            <div class="section recommendations">
+                <h2>Recomendações Estratégicas</h2>
+                <ul>
+                    <li>{recommendation_1}</li>
+                    <li>{recommendation_2}</li>
+                </ul>
+            </div>
+            
+            <div class="footer"><p>Relatório global gerado pela Opportunity Engine com tecnologia Gemini.</p></div>
+        </div>
+    </body>
+    </html>
+    """.format(
+        report_title=narrative.get('report_title', f'Análise Estratégica Global para {advertiser_name}'),
+        executive_summary=narrative.get('executive_summary', ''),
+        scenarios_intro=narrative.get('analysis_of_scenarios', {}).get('introduction', ''),
+        scenarios_analysis_html=scenarios_analysis_html,
+        channel_mix_html=channel_mix_html,
+        recommendation_1=narrative.get('strategic_recommendations', [{}])[0].get('recommendation', ''),
+        recommendation_2=narrative.get('strategic_recommendations', [{}, {}])[1].get('recommendation', ''),
+        response_curve_img=image_b64s.get('response_curve', ''),
+        donuts_img=image_b64s.get('donuts', ''),
+        css_styles=css_styles
+    )
+
+    try:
+        with open(output_filename, 'w', encoding='utf-8') as f:
+            f.write(html_template)
+        print(f"   - ✅ Global Gemini HTML report saved successfully to: {output_filename}")
+    except Exception as e:
+        import traceback
+        print(f"   - ❌ ERROR: Could not write global HTML report to file. Details: {e}")
+        traceback.print_exc()

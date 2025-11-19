@@ -16,6 +16,7 @@ from sklearn.feature_selection import VarianceThreshold
 from sklearn.preprocessing import MinMaxScaler
 import holidays
 from scipy.signal import lfilter
+import os
 
 warnings.filterwarnings("ignore", category=OptimizeWarning)
 warnings.filterwarnings("ignore", category=FutureWarning)
@@ -36,7 +37,7 @@ def create_calendar_features(df):
     df_featured['dayofweek'] = df_featured.index.dayofweek
     df_featured['month'] = df_featured.index.month
     df_featured['is_weekend'] = (df_featured.index.dayofweek >= 5).astype(int)
-    df_featured['is_payday_period'] = ((df_featured.index.day >= 1) & (df_featured.index.day <= 5) | 
+    df_featured['is_payday_period'] = ((df_featured.index.day >= 1) & (df_featured.index.day <= 5) |
                                      (df_featured.index.day >= 15) & (df_featured.index.day <= 20)).astype(int)
     br_holidays = holidays.Brazil()
     df_featured['is_holiday'] = df_featured.index.map(lambda date: date in br_holidays).astype(int)
@@ -46,18 +47,15 @@ def create_calendar_features(df):
 
 
 
-def find_events(df, company_name, increase_ratio, decrease_ratio, post_event_days, pre_selection_pool_size=30, output_dir='.'):
+def find_events(df, company_name, increase_ratio, decrease_ratio, post_event_days, pre_selection_pool_size=30, output_dir=None):
     """
     Finds all significant investment changes, groups overlapping events into a single
-    consolidated event per week, and saves the final map to a CSV.
+    consolidated event per week, and returns the final map.
     """
     print("\n" + "="*50 + "\n🔎 Starting Comprehensive Event Detection & Grouping...\n" + "="*50)
     try:
         df = df.rename(columns={'Product Group': 'product_group', 'Date': 'dates'})
-        print("--- Debug: DataFrame head in find_events ---")
-        print(df.head())
-        # --- End Debug ---
-
+        
         all_individual_events = []
         product_groups = df['product_group'].unique()
         print(f"   - Analyzing {len(product_groups)} unique ad products for significant changes.")
@@ -102,11 +100,7 @@ def find_events(df, company_name, increase_ratio, decrease_ratio, post_event_day
         consolidated_events = []
         for week, group in individual_events_df.groupby('event_week'):
             channels = sorted(list(group['ad_product'].unique()))
-            # For the consolidated name, we join the sorted channel names
             consolidated_name = ', '.join(channels)
-            
-            # We can retain the percentage change of the most significant channel for context
-            # or calculate a weighted average if needed. Here, we take the max change.
             max_change = group.loc[group['percentage_change'].abs().idxmax()]['percentage_change']
             
             consolidated_events.append({
@@ -120,12 +114,14 @@ def find_events(df, company_name, increase_ratio, decrease_ratio, post_event_day
 
         event_map_df = pd.DataFrame(consolidated_events).sort_values(by='date')
         
-        import os
-        output_path = os.path.join(output_dir, 'detected_events.csv')
-        os.makedirs(output_dir, exist_ok=True)
-        event_map_df.to_csv(output_path, index=False)
-        print(f"   - ✅ Successfully saved {len(event_map_df)} consolidated event(s) to {output_path}")
-        
+        # --- New Code: Save detected events to CSV in the brand's output directory ---
+        if output_dir:
+            os.makedirs(output_dir, exist_ok=True)
+            output_filepath = os.path.join(output_dir, 'detected_events.csv')
+            event_map_df.to_csv(output_filepath, index=False)
+            print(f"   - ✅ Detected events saved to: {output_filepath}")
+        # --- End New Code ---
+
         return event_map_df, None, None
 
     except (KeyError, TypeError) as e:
@@ -202,7 +198,10 @@ def run_causal_impact_analysis(kpi_df, daily_investment_df, market_trends_df, pe
 
         pre_data_for_model = model_data.loc[pre_period[0]:pre_period[1]].copy()
         post_data = model_data.loc[post_period[0]:post_period[1]].copy()
-        if post_data.empty or pre_data_for_model.empty:
+        
+        min_pre_period_days = 30 # Require at least 30 days of pre-period data
+        if pre_data_for_model.empty or post_data.empty or len(pre_data_for_model) < min_pre_period_days:
+            print(f"   - SKIPPED: Insufficient data for causal impact analysis. Pre-period data points: {len(pre_data_for_model)} (min required: {min_pre_period_days}).")
             return None, None, None, None, None
 
         print("   - Running automated feature selection for causal model...")
@@ -302,65 +301,91 @@ def run_causal_impact_analysis(kpi_df, daily_investment_df, market_trends_df, pe
 
 def _train_response_model(model_data, product_group):
     """
-    Trains the ad-stock and saturation model using the entire provided dataset.
+    Trains the ad-stock and saturation model on INCREMENTAL KPIs by first
+    modeling and subtracting the baseline performance.
     """
-    print("\n" + "="*50 + "\n🔎 Training Response Model for Projection on ALL Historical Data...\n" + "="*50)
+    print("\n" + "="*50 + "\n🔎 Training Response Model for Projection on INCREMENTAL Data...\n" + "="*50)
     
     event_channels = [ch.strip() for ch in product_group.split(',')]
     valid_event_channels = [ch for ch in event_channels if ch in model_data.columns]
     if not valid_event_channels:
         raise ValueError(f"None of the event channels {event_channels} were found in the model data columns.")
+
+    # --- 1. Model and Subtract Baseline KPI ---
+    print("   - Modeling baseline KPI using non-investment features...")
+    model_data_featured = create_calendar_features(model_data.copy())
     
-    full_period_investment = model_data[valid_event_channels].sum(axis=1)
-    full_period_kpi = model_data['Sessions']
+    baseline_features = [col for col in model_data_featured.columns if 'day_' in col or col in ['is_weekend', 'is_payday_period', 'is_holiday', 'Generic Searches']]
+    X_base = model_data_featured[baseline_features]
+    X_base = sm.add_constant(X_base)
+    y_base = model_data_featured['Sessions']
+    
+    baseline_model = sm.OLS(y_base, X_base).fit()
+    baseline_kpi_predictions = baseline_model.predict(X_base)
+    
+    model_data_featured['incremental_kpi'] = (y_base - baseline_kpi_predictions).clip(lower=0)
+    print("   - Baseline subtracted. Modeling response on incremental KPI.")
+
+    # --- 2. Model Investment vs. Incremental KPI ---
+    full_period_investment = model_data_featured[valid_event_channels].sum(axis=1)
+    incremental_kpi = model_data_featured['incremental_kpi']
 
     possible_alphas = np.arange(0.1, 1.0, 0.1)
-    correlations = {alpha: np.corrcoef(geometric_decay(full_period_investment, alpha), full_period_kpi)[0, 1] for alpha in possible_alphas}
+    correlations = {alpha: np.corrcoef(geometric_decay(full_period_investment, alpha), incremental_kpi)[0, 1] for alpha in possible_alphas}
     best_alpha = max(correlations, key=correlations.get)
-    print(f"   - Best ad-stock alpha (full data): {best_alpha:.2f}")
+    print(f"   - Best ad-stock alpha (incremental data): {best_alpha:.2f}")
 
-    adstocked_investment = pd.Series(geometric_decay(full_period_investment, best_alpha), index=model_data.index)
+    adstocked_investment = pd.Series(geometric_decay(full_period_investment, best_alpha), index=model_data_featured.index)
 
     best_k, best_s = (1, 1)
     try:
         def hill_for_fit(x, k, s):
-            return full_period_kpi.max() * hill_transform(x, k, s)
+            # Scale to the max of the INCREMENTAL kpi
+            return incremental_kpi.max() * hill_transform(x, k, s)
         
-        median_investment = np.median(adstocked_investment)
-        if median_investment == 0: median_investment = 1
+        median_investment = np.median(adstocked_investment[adstocked_investment > 0])
+        if median_investment == 0 or np.isnan(median_investment): median_investment = 1
+
+        max_adstocked_investment = adstocked_investment.max()
+        bounds = ([0.1, 0], [10, max_adstocked_investment * 1.5])
 
         popt, _ = curve_fit(
-            hill_for_fit, adstocked_investment, full_period_kpi, 
-            p0=[2, median_investment], bounds=(0, np.inf), maxfev=5000
+            hill_for_fit, adstocked_investment, incremental_kpi, 
+            p0=[2, median_investment], bounds=bounds, maxfev=5000
         )
         best_k, best_s = popt
-        print(f"   - Best saturation params (full data): k={best_k:.2f}, s={best_s:.2f}")
-    except (RuntimeError, ValueError):
-        print("   - ⚠️ WARNING: Could not find optimal saturation curve for full data. Using defaults.")
+        print(f"   - Best saturation params (incremental data): k={best_k:.2f}, s={best_s:.2f}")
+    except (RuntimeError, ValueError) as e:
+        print(f"   - ⚠️ WARNING: Could not find optimal saturation curve for incremental data. Using defaults. Error: {e}")
 
-    max_kpi_scaler = full_period_kpi.max()
-    hist_avg_investment = model_data.iloc[-90:][valid_event_channels].sum(axis=1).mean()
+    # --- 3. Calculate Final Parameters ---
+    # The scaler should now be based on the max of the incremental KPI
+    max_kpi_scaler = incremental_kpi.max()
     
-    # --- New Code: Calculate investment proportion for each channel ---
+    # Base KPI is the average of the predicted baseline
+    base_kpi_avg = baseline_kpi_predictions.mean()
+
+    hist_avg_investment = model_data_featured.iloc[-90:][valid_event_channels].sum(axis=1).mean()
+    
     channel_proportions = {}
     if hist_avg_investment > 0:
         for channel in valid_event_channels:
-            channel_avg_investment = model_data.iloc[-90:][channel].mean()
+            channel_avg_investment = model_data_featured.iloc[-90:][channel].mean()
             channel_proportions[channel] = channel_avg_investment / hist_avg_investment
     else:
-        # Fallback to equal split if there's no historical investment
-        equal_share = 1 / len(valid_event_channels)
+        equal_share = 1 / len(valid_event_channels) if valid_event_channels else 0
         for channel in valid_event_channels:
             channel_proportions[channel] = equal_share
     print(f"   - Calculated channel investment proportions: {channel_proportions}")
-    # --- End New Code ---
 
     historical_adstocked_inv = hist_avg_investment / (1 - best_alpha)
     historical_saturated_response = hill_transform(historical_adstocked_inv, best_k, best_s)
-    hist_avg_kpi = historical_saturated_response * max_kpi_scaler
+    
+    # Historical KPI is now the baseline + the modeled incremental portion
+    hist_avg_kpi = base_kpi_avg + (historical_saturated_response * max_kpi_scaler)
 
-    model_params = {'alpha': best_alpha, 'k': best_k, 's': best_s}
-    print("   - ✅ Projection model training on full data complete.")
+    model_params = {'alpha': best_alpha, 'k': best_k, 's': best_s, 'scaler': max_kpi_scaler, 'base_kpi': base_kpi_avg}
+    print("   - ✅ Incremental projection model training complete.")
     return best_alpha, best_k, best_s, max_kpi_scaler, hist_avg_investment, hist_avg_kpi, model_params, channel_proportions
 
 def run_opportunity_projection(kpi_df, daily_investment_df, market_trends_df, product_group, config):
@@ -371,7 +396,7 @@ def run_opportunity_projection(kpi_df, daily_investment_df, market_trends_df, pr
     optimization_target = config.get('optimization_target', 'REVENUE').upper()
     
     try:
-        investment_pivot_df = daily_investment_df.pivot_table(index='Date', columns='Product Group', values='investment').fillna(0)
+        investment_pivot_df = daily_investment_df.copy().pivot_table(index='Date', columns='Product Group', values='investment').fillna(0)
         model_data = pd.merge(kpi_df[['Date', 'Sessions']], investment_pivot_df, on='Date', how='inner')
         model_data = pd.merge(model_data, market_trends_df, on='Date', how='left')
         model_data.set_index('Date', inplace=True)
@@ -384,7 +409,8 @@ def run_opportunity_projection(kpi_df, daily_investment_df, market_trends_df, pr
         max_hist_inv = daily_investment_df['investment'].max()
         investment_scenarios = np.linspace(1, max_hist_inv * investment_limit_factor, 200)
         
-        projected_kpis = [((hill_transform((inv / (1 - best_alpha)), best_k, best_s)) * max_kpi_scaler) for inv in investment_scenarios]
+        base_kpi = model_params.get('base_kpi', 0)
+        projected_kpis = [base_kpi + ((hill_transform((inv / (1 - best_alpha)), best_k, best_s)) * max_kpi_scaler) for inv in investment_scenarios]
         response_curve_df = pd.DataFrame({'Daily_Investment': investment_scenarios, 'Projected_Total_KPIs': projected_kpis})
 
         conversion_rate = config.get('conversion_rate_from_kpi_to_bo', 0)
@@ -480,31 +506,51 @@ def get_kpi_for_investment(investment, model):
     """Calculates the projected KPI for a single channel given an investment and a trained model."""
     adstocked_inv = investment / (1 - model['alpha'])
     saturated_response = hill_transform(adstocked_inv, model['k'], model['s'])
-    return saturated_response * model['scaler']
+    return model.get('base_kpi', 0) + (saturated_response * model['scaler'])
 
-def find_optimal_investment_split(channel_models, total_budget, steps=100):
+def find_optimal_historical_mix(kpi_df, daily_investment_df):
     """
-    Finds the optimal budget split across channels to maximize total KPI.
+    Analyzes historical data to find the investment mix from the most efficient periods.
     """
-    investment_split = {channel: 0 for channel in channel_models.keys()}
-    budget_step = total_budget / steps
+    print("   - - Analyzing historical data to find the optimal investment mix...")
+    
+    # Pivot investment data to have channels as columns
+    investment_pivot = daily_investment_df.pivot_table(index='Date', columns='Product Group', values='investment').fillna(0)
+    
+    # Merge with KPI data
+    merged_df = pd.merge(kpi_df, investment_pivot, on='Date', how='inner')
+    merged_df.set_index('Date', inplace=True)
+    
+    # Resample to weekly frequency
+    weekly_df = merged_df.resample('W-MON').sum()
+    
+    # Calculate total investment and a rolling efficiency ratio to find sustained high-performance periods
+    weekly_df['Total_Investment'] = weekly_df[investment_pivot.columns].sum(axis=1)
+    
+    # Use a 4-week rolling window to smooth out anomalies and capture sustained impact
+    rolling_kpi = weekly_df['Sessions'].rolling(window=4, min_periods=1).sum()
+    rolling_investment = weekly_df['Total_Investment'].rolling(window=4, min_periods=1).sum()
+    
+    weekly_df['Efficiency_Ratio'] = (rolling_kpi / rolling_investment).fillna(0)
+    
+    # Filter out weeks with no investment
+    weekly_df = weekly_df[weekly_df['Total_Investment'] > 0]
+    
+    if weekly_df.empty:
+        print("   - ⚠️ No historical investment data to analyze for optimal mix.")
+        return None
 
-    for _ in range(steps):
-        marginal_gains = {}
-        for channel, model in channel_models.items():
-            current_investment = investment_split[channel]
-            current_kpi = get_kpi_for_investment(current_investment, model)
-            next_kpi = get_kpi_for_investment(current_investment + budget_step, model)
-            marginal_gain = next_kpi - current_kpi
-            marginal_gains[channel] = marginal_gain
-        
-        best_channel = max(marginal_gains, key=marginal_gains.get)
-        investment_split[best_channel] += budget_step
+    # Identify the top 10% most efficient weeks
+    top_quantile = weekly_df['Efficiency_Ratio'].quantile(0.9)
+    top_weeks = weekly_df[weekly_df['Efficiency_Ratio'] >= top_quantile]
+    
+    if top_weeks.empty:
+        print("   - ⚠️ Could not identify top efficiency weeks.")
+        return None
 
-    # Calculate the total KPI from the final optimal split
-    total_kpi = 0
-    for channel, investment in investment_split.items():
-        total_kpi += get_kpi_for_investment(investment, channel_models[channel])
-        
-    return investment_split, total_kpi
-
+    # Calculate the investment share for each channel during these top weeks
+    top_weeks_investment = top_weeks[investment_pivot.columns]
+    optimal_mix = top_weeks_investment.sum() / top_weeks_investment.sum().sum()
+    
+    print(f"   - ✅ Found optimal historical mix from top {len(top_weeks)} weeks.")
+    return optimal_mix.to_dict()

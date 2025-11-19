@@ -5,7 +5,23 @@ file and folder management in Google Drive, and interactions with Google Slides
 and Google Sheets.
 """
 
+import os
+import gspread
+import google.auth.transport.requests as requests
+from google_auth_oauthlib.flow import InstalledAppFlow
+from googleapiclient.discovery import build
+from googleapiclient.errors import HttpError
+from google.oauth2.credentials import Credentials
 import google.generativeai as genai
+
+# Define the scope for Google services
+SCOPES = [
+    "https://www.googleapis.com/auth/drive",
+    "https://www.googleapis.com/auth/presentations",
+    "https://www.googleapis.com/auth/spreadsheets"
+]
+TOKEN_FILE = 'token.json'
+CLIENT_SECRETS_FILE = 'client_secrets.json'
 
 
 def authenticate_google_services():

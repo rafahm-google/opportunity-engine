@@ -9,8 +9,6 @@ __pycache__/
 .vscode/
 .idea/
 
-# Ignore all scripts by default
-scripts/*
 
 # Allow essential scripts to be tracked
 !scripts/analysis.py

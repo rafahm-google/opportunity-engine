@@ -135,7 +135,7 @@ def run_mmm_engine(config):
     # Adjust bounds and initial params for active channels only
     bounds = [(0.0, 0.9)] * len(active_spend_cols) + \
              [(0.1, 5.0)] * len(active_spend_cols) + \
-             [(df[col].mean() * 0.2, df[col].mean() * 3) for col in active_spend_cols] + \
+             [(df[col].mean() * 0.1, df[col].mean() * 5) for col in active_spend_cols] + \
              [(0.01, 10.0)]
 
     initial_params = [0.5] * len(active_spend_cols) + \
@@ -308,22 +308,43 @@ def generate_aggregated_response_curve(mmm_results, config):
         
     response_curve_df = pd.DataFrame(simulation_data)
     
-    # Identify Key Points
+    # --- Identify Key Points (using Daily Investment) ---
     
-    # 1. Baseline (Multiplier ~ 1.0)
+    # 1. Baseline (Cenário Atual) is where the investment multiplier is 1.0
     baseline_idx = (np.abs(multipliers - 1.0)).argmin()
-    baseline_point = response_curve_df.iloc[baseline_idx].to_dict()
+    baseline_point_row = response_curve_df.iloc[baseline_idx]
+    baseline_point = baseline_point_row.to_dict()
+    baseline_point['Scenario'] = 'Cenário Atual'
     
-    # 2. Max Efficiency (Max ROI = KPI / Investment)
-    # Avoid division by zero
-    response_curve_df['Efficiency'] = response_curve_df['Projected_Total_KPIs'] / response_curve_df['Daily_Investment'].replace(0, 1e-9)
-    # Ignore the very first point (0 spend)
-    max_eff_idx = response_curve_df.iloc[1:]['Efficiency'].idxmax()
-    max_efficiency_point = response_curve_df.iloc[max_eff_idx].to_dict()
+    # --- Calculate Incremental Values Relative to Baseline ---
+    baseline_investment = baseline_point['Daily_Investment']
+    baseline_kpi = baseline_point['Projected_Total_KPIs']
     
+    response_curve_df['Incremental_Investment'] = response_curve_df['Daily_Investment'] - baseline_investment
+    response_curve_df['Incremental_KPI'] = response_curve_df['Projected_Total_KPIs'] - baseline_kpi
+    
+    # Ensure incremental values are not negative
+    response_curve_df.loc[response_curve_df['Incremental_Investment'] < 0, ['Incremental_Investment', 'Incremental_KPI']] = 0
+    
+    # Calculate Incremental ROI
+    # Add a small epsilon to avoid division by zero
+    response_curve_df['Incremental_ROI'] = response_curve_df['Incremental_KPI'] / (response_curve_df['Incremental_Investment'] + 1e-9)
+    
+    # 2. Max Efficiency is the point with the highest Incremental ROI
+    # We only consider points with investment greater than the baseline
+    incremental_curve = response_curve_df[response_curve_df['Daily_Investment'] > baseline_investment]
+    if not incremental_curve.empty:
+        max_eff_idx = incremental_curve['Incremental_ROI'].idxmax()
+        max_efficiency_point = response_curve_df.loc[max_eff_idx].to_dict()
+    else:
+        # Fallback if there's no incremental curve
+        max_efficiency_point = baseline_point # Default to baseline
+    max_efficiency_point['Scenario'] = 'Máxima Eficiência'
+
     # 3. Strategic Limit (e.g., 1.5x baseline)
     strat_idx = (np.abs(multipliers - 1.5)).argmin()
     strategic_limit_point = response_curve_df.iloc[strat_idx].to_dict()
+    strategic_limit_point['Scenario'] = 'Limite Estratégico'
     
     # Diminishing return point (placeholder)
     diminishing_return_point = None

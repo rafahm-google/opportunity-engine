@@ -113,7 +113,7 @@ def generate_recommendations_file(results_data, scenarios_df, config, output_dir
                 gain_metric = "em receita incremental"
                 formatted_gain = format_number(rec_gain, currency=True)
             else:
-                rec_gain = rec_point['Incremental_KPI'].iloc[0] * 30 * config.get('conversion_rate_from_kpi_to_bo', 1)
+                rec_gain = rec_point['Incremental_KPI'].iloc[0] * config.get('conversion_rate_from_kpi_to_bo', 1) * 30
                 gain_metric = "em conversões incrementais"
                 formatted_gain = format_number(rec_gain)
 

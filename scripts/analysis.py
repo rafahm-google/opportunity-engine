@@ -411,6 +411,7 @@ def run_opportunity_projection(kpi_df, daily_investment_df, market_trends_df, pr
         
         base_kpi = model_params.get('base_kpi', 0)
         projected_kpis = [base_kpi + ((hill_transform((inv / (1 - best_alpha)), best_k, best_s)) * max_kpi_scaler) for inv in investment_scenarios]
+        
         response_curve_df = pd.DataFrame({'Daily_Investment': investment_scenarios, 'Projected_Total_KPIs': projected_kpis})
 
         conversion_rate = config.get('conversion_rate_from_kpi_to_bo', 0)
@@ -433,8 +434,6 @@ def run_opportunity_projection(kpi_df, daily_investment_df, market_trends_df, pr
         response_curve_df.loc[response_curve_df['Incremental_Investment'] < 0, 'Incremental_Investment'] = 0
         response_curve_df.loc[response_curve_df['Incremental_KPI'] < 0, 'Incremental_KPI'] = 0
 
-        optimization_target = config.get('optimization_target', 'REVENUE').upper()
-
         if optimization_target == 'REVENUE':
             if avg_ticket <= 0:
                 raise ValueError("'average_ticket' must be greater than 0 for a REVENUE-based optimization.")
@@ -447,23 +446,22 @@ def run_opportunity_projection(kpi_df, daily_investment_df, market_trends_df, pr
             response_curve_df['CPA'] = (response_curve_df['Daily_Investment'] / response_curve_df['Projected_Total_KPIs']).fillna(0)
             response_curve_df['iCPA'] = (response_curve_df['Incremental_Investment'] / response_curve_df['Incremental_KPI']).fillna(0)
 
-        scaler = MinMaxScaler()
-        incremental_curve = response_curve_df[response_curve_df['Daily_Investment'] >= baseline_investment]
-        if len(incremental_curve) < 2:
-            knee_index = response_curve_df.index[-1]
+        # Find the point of maximum efficiency based on the highest Incremental ROI
+        incremental_curve = response_curve_df[response_curve_df['Daily_Investment'] >= baseline_investment].copy()
+        if not incremental_curve.empty:
+            if optimization_target == 'REVENUE':
+                # For revenue, max efficiency is the point with the highest ROI
+                max_efficiency_index = incremental_curve['Incremental_ROI'].idxmax()
+            else:
+                # For conversions, max efficiency is the point with the lowest incremental CPA
+                # Replace inf with NaN to handle cases where Incremental_KPI is 0
+                incremental_curve['iCPA'] = incremental_curve['iCPA'].replace([np.inf, -np.inf], np.nan)
+                max_efficiency_index = incremental_curve['iCPA'].idxmin()
         else:
-            scaled_points = scaler.fit_transform(incremental_curve[['Daily_Investment', 'Projected_Total_KPIs']])
-            line_vec = scaled_points[-1] - scaled_points[0]
-            line_vec_norm = line_vec / np.sqrt(np.sum(line_vec**2))
-            vec_from_first = scaled_points - scaled_points[0]
-            scalar_proj = np.sum(vec_from_first * line_vec_norm, axis=1)
-            vec_from_first_parallel = np.outer(scalar_proj, line_vec_norm)
-            vec_to_line = vec_from_first - vec_from_first_parallel
-            dist_to_line = np.sqrt(np.sum(vec_to_line**2, axis=1))
-            knee_local_index = np.argmax(dist_to_line)
-            knee_index = incremental_curve.index[knee_local_index]
+            # Fallback if there's no incremental curve to analyze
+            max_efficiency_index = response_curve_df.index[0]
 
-        max_efficiency_point = response_curve_df.loc[knee_index].to_dict()
+        max_efficiency_point = response_curve_df.loc[max_efficiency_index].to_dict()
         max_efficiency_point['Scenario'] = 'Máxima Eficiência'
 
         first_derivative = np.gradient(response_curve_df['Projected_Total_KPIs'], response_curve_df['Daily_Investment'])

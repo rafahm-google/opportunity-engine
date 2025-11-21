@@ -131,48 +131,49 @@ def save_sessions_bar_plot(sessions_bar_df, output_path, kpi_name='Sessions'):
 def save_opportunity_curve_plot(response_curve_df, baseline_point, max_efficiency_point, 
                                 diminishing_return_point, saturation_point, filename, 
                                 kpi_name='Sessions', strategic_limit_point=None, config=None):
-    """Saves the saturation curve plot with key strategic points."""
-    
-    # --- New: Conditional formatting based on config ---
-    optimization_target = 'REVENUE'
-    if config:
-        optimization_target = config.get('optimization_target', 'REVENUE').upper()
+    """
+    Saves the saturation curve plot. Handles both daily and monthly input data
+    by checking for a 'Daily_Investment' column and converting if present.
+    """
+    if response_curve_df is None or response_curve_df.empty:
+        print(f"   - ⚠️ WARNING: Response curve data is empty. Skipping plot generation for {filename}.")
+        return
 
-    if optimization_target == 'REVENUE':
-        x_label = 'Investimento Mensal (R$)'
-        formatter = 'R${:,.0f}'
-        unit_formatter = lambda x: f'R${x/1e6:.1f}M' if x >= 1e6 else f'R${x/1e3:.0f}k'
-    else: # CONVERSIONS
-        x_label = 'Investimento Mensal'
-        formatter = '{:,.0f}'
-        unit_formatter = lambda x: f'{x/1e6:.1f}M' if x >= 1e6 else f'{x/1e3:.0f}k'
-    # --- End New ---
+    plot_df = response_curve_df.copy()
+    # Standardize to monthly for plotting
+    if 'Daily_Investment' in plot_df.columns:
+        plot_df['Monthly_Investment'] = plot_df['Daily_Investment'] * 30
+        plot_df['Monthly_KPIs'] = plot_df['Projected_Total_KPIs'] * 30
+    else:
+        plot_df.rename(columns={'Projected_Total_KPIs': 'Monthly_KPIs', 'Investment': 'Monthly_Investment'}, inplace=True)
+
+    unit_formatter = lambda x: f'R${x/1e6:.1f}M' if x >= 1e6 else f'R${x/1e3:.0f}k'
+    x_label = 'Investimento Mensal (R$)'
 
     plt.style.use('seaborn-v0_8-whitegrid')
     fig, ax = plt.subplots(figsize=(18, 10))
 
-    # Monthly conversion
-    response_curve_df['Monthly_Investment'] = response_curve_df['Daily_Investment'] * 30
-    response_curve_df['Monthly_KPIs'] = response_curve_df['Projected_Total_KPIs'] * 30
-
-    ax.plot(response_curve_df['Monthly_Investment'], response_curve_df['Monthly_KPIs'], 
+    ax.plot(plot_df['Monthly_Investment'], plot_df['Monthly_KPIs'], 
             label='Curva de Resposta Preditiva', color='royalblue', linewidth=2)
 
     def plot_point(point, color, label, marker='o', size=100, ha='center', va='bottom', offset=(0, 10)):
-        if point and all(k in point for k in ['Daily_Investment', 'Projected_Total_KPIs']):
-            monthly_inv = point['Daily_Investment'] * 30
-            monthly_kpi = point['Projected_Total_KPIs'] * 30
-            ax.scatter(monthly_inv, monthly_kpi, color=color, s=size, label=label, marker=marker, zorder=5)
-            ax.annotate(f'{label}\n{unit_formatter(monthly_inv)}', 
-                        (monthly_inv, monthly_kpi),
-                        textcoords="offset points",
-                        xytext=offset,
-                        ha=ha, va=va,
-                        arrowprops=dict(arrowstyle="->", color='black'))
+        if not point or 'Daily_Investment' not in point or 'Projected_Total_KPIs' not in point:
+            return
+        
+        # Consistently convert daily point data to monthly for plotting
+        monthly_inv = point['Daily_Investment'] * 30
+        monthly_kpi = point['Projected_Total_KPIs'] * 30
 
-    plot_point(baseline_point, 'gray', 'Cenário Atual', marker='o', size=150, ha='right', va='top', offset=(-10, -10))
-    plot_point(max_efficiency_point, 'red', 'Máxima Eficiência', marker='*', size=200, ha='left', va='bottom', offset=(10, 10))
+        ax.scatter(monthly_inv, monthly_kpi, color=color, s=size, label=label, marker=marker, zorder=5)
+        
+        # Use a direct annotation which is simpler than arrowprops for this case
+        ax.text(monthly_inv + offset[0], monthly_kpi + offset[1], f'{label}\n{unit_formatter(monthly_inv)}', 
+                ha=ha, va=va, fontsize=12)
+
+    plot_point(baseline_point, 'gray', 'Cenário Atual', marker='o', size=150, ha='right', va='top', offset=(-100000, -50))
+    plot_point(max_efficiency_point, 'red', 'Máxima Eficiência', marker='*', size=200, ha='left', va='top', offset=(100000, 0))
     
+    optimization_target = config.get('optimization_target', 'REVENUE').upper() if config else 'REVENUE'
     if strategic_limit_point and optimization_target == 'REVENUE':
         plot_point(strategic_limit_point, 'green', 'Limite Estratégico', marker='X', size=150, ha='center', va='bottom', offset=(0, 15))
 

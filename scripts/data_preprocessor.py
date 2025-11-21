@@ -54,6 +54,12 @@ def load_and_prepare_data(config):
             perf_map.get('kpi_col', config['performance_kpi_column']): 'Sessions'
         }, inplace=True)
 
+        # --- Clean percentage strings and convert to numeric ---
+        if kpi_df['Sessions'].dtype == 'object':
+            kpi_df['Sessions'] = kpi_df['Sessions'].str.replace('%', '', regex=False).str.replace(',', '.', regex=False)
+        kpi_df['Sessions'] = pd.to_numeric(kpi_df['Sessions'], errors='coerce')
+
+
         daily_investment_df.rename(columns={
             inv_map.get('date_col', 'dates'): 'Date',
             inv_map.get('channel_col', 'product_group'): 'Product Group',
@@ -87,6 +93,8 @@ def load_and_prepare_data(config):
 
         print("   - Data loaded and columns renamed successfully.")
         
+        kpi_col = 'Sessions'
+        
         # --- Adstock Transformation ---
         print("   - Checking for negative correlations and applying adstock where needed...")
         investment_pivot = daily_investment_df.pivot_table(index='Date', columns='Product Group', values='investment').fillna(0)
@@ -95,9 +103,9 @@ def load_and_prepare_data(config):
         correlation_matrix = merged_for_corr.corr(numeric_only=True)
         
         for column in investment_pivot.columns:
-            if column in correlation_matrix and correlation_matrix[column]['Sessions'] < 0:
+            if column in correlation_matrix and correlation_matrix[column][kpi_col] < 0:
                 print(f"     - Applying adstock to '{column}' due to negative correlation.")
-                best_alpha, _ = find_best_alpha(merged_for_corr[column], merged_for_corr['Sessions'])
+                best_alpha, _ = find_best_alpha(merged_for_corr[column], merged_for_corr[kpi_col])
                 daily_investment_df.loc[daily_investment_df['Product Group'] == column, 'investment'] = geometric_decay(daily_investment_df.loc[daily_investment_df['Product Group'] == column, 'investment'], best_alpha)
 
         print("   - Data preparation complete.")

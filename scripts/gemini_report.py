@@ -195,31 +195,42 @@ def generate_html_report(gemini_client, results_data, config, image_paths, outpu
 
         scenarios_table_html = f'<table class="scenarios-table"><tr>{header}</tr>'
         
+        # Create a monthly version for reporting
+        monthly_scenarios_df = scenarios_df.copy()
+        monthly_scenarios_df['Monthly_Investment'] = monthly_scenarios_df['Daily_Investment'] * 30
+        monthly_scenarios_df['Projected_Total_KPIs'] = monthly_scenarios_df['Projected_Total_KPIs'] * 30
+        monthly_scenarios_df['Incremental_Investment'] = monthly_scenarios_df['Incremental_Investment'] * 30
+        if 'Projected_Revenue' in monthly_scenarios_df.columns:
+            monthly_scenarios_df['Projected_Revenue'] = monthly_scenarios_df['Projected_Revenue'] * 30
+        if 'Incremental_Revenue' in monthly_scenarios_df.columns:
+            monthly_scenarios_df['Incremental_Revenue'] = monthly_scenarios_df['Incremental_Revenue'] * 30
+
+
         # Filter for the three key scenarios for the table
         scenarios_to_include = ['Cenário Atual', 'Máxima Eficiência', 'Limite Estratégico']
-        filtered_scenarios_df = scenarios_df[scenarios_df['Scenario'].isin(scenarios_to_include)]
+        filtered_scenarios_df = monthly_scenarios_df[monthly_scenarios_df['Scenario'].isin(scenarios_to_include)]
 
         # Build table directly from the filtered scenarios_df to ensure data integrity
-        for _, row in filtered_scenarios_df.sort_values('Daily_Investment').iterrows():
-            inc_investment = row.get('Incremental_Investment', 0) * 30
-            inc_revenue_or_orders = row.get('Incremental_Revenue', 0) * 30 # This holds revenue if ticket > 0, else orders
+        for _, row in filtered_scenarios_df.sort_values('Monthly_Investment').iterrows():
+            inc_investment = row.get('Incremental_Investment', 0)
+            inc_revenue_or_orders = row.get('Incremental_Revenue', 0)
             
             if avg_ticket > 0:
                 formatted_row = row_template.format(
                     Scenario=row['Scenario'],
-                    inv_monthly=format_number(row['Daily_Investment'] * 30, currency=True),
-                    proj_rev=format_number(row.get('Projected_Revenue', 0) * 30, currency=True),
+                    inv_monthly=format_number(row['Monthly_Investment'], currency=True),
+                    proj_rev=format_number(row.get('Projected_Revenue', 0), currency=True),
                     roi=row.get('Incremental_ROI', 0),
                     inc_inv=format_number(inc_investment, currency=True),
                     inc_rev=format_number(inc_revenue_or_orders, currency=True)
                 )
             else:
                 cpa = format_number(inc_investment / inc_revenue_or_orders, currency=True) if inc_revenue_or_orders > 0 else "N/A"
-                proj_orders = row['Projected_Total_KPIs'] * config.get('conversion_rate_from_kpi_to_bo', 0) * 30
+                proj_orders = row['Projected_Total_KPIs'] * config.get('conversion_rate_from_kpi_to_bo', 0)
                 inc_orders = inc_revenue_or_orders * config.get('conversion_rate_from_kpi_to_bo', 0)
                 formatted_row = row_template.format(
                     Scenario=row['Scenario'],
-                    inv_monthly=format_number(row['Daily_Investment'] * 30, currency=True),
+                    inv_monthly=format_number(row['Monthly_Investment'], currency=True),
                     proj_orders=proj_orders,
                     cpa=cpa,
                     inc_inv=format_number(inc_investment, currency=True),
@@ -511,12 +522,29 @@ def generate_global_gemini_report(gemini_client, config, donut_scenarios=None, t
                 row += f"<td>{cell_content}</td>"
             row += "</tr>"
             rows += row
+
+        # --- Build Total Row ---
+        total_row = "<tr><td><strong>Total</strong></td>"
+        for s in donut_scenarios:
+            scenario_data = s['data']
+            total_val = sum(scenario_data.values())
+            
+            final_total = 0
+            # Heuristic to determine if the data is ratios or absolute values
+            if total_val > 0 and total_val <= 10 and total_investment:
+                final_total = total_investment # It's a ratio, use the provided total
+            else:
+                final_total = total_val # It's absolute, use the sum
+
+            total_row += f"<td><strong>R$ {final_total:,.0f} (100.00%)</strong></td>"
+        total_row += "</tr>"
+        # --- End Total Row ---
             
         channel_mix_html = f"""
         <h3>Detalhamento do Mix de Canais</h3>
         <table class="scenarios-table">
             <thead><tr>{header}</tr></thead>
-            <tbody>{rows}</tbody>
+            <tbody>{rows}{total_row}</tbody>
         </table>
         """
     # --- End New ---

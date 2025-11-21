@@ -317,16 +317,9 @@ def main(config, args):
         mmm_results = mmm_analysis.run_mmm_engine(config)
         
         if mmm_results:
-            total_budget_optimized = 69007872.37 
-            mmm_budget_split = recommendations.generate_mmm_budget_scenarios(
-                mmm_results['contribution_pct'], total_budget_optimized
-            )
             investment_pivot_df = daily_investment_df.pivot_table(
                 index='Date', columns='Product Group', values='investment'
             ).fillna(0).reset_index()
-            historical_budget_split = recommendations.generate_historical_split_scenarios(
-                investment_pivot_df, total_budget_optimized
-            )
             global_output_dir = os.path.join(base_output_dir, config['advertiser_name'], 'global_saturation_analysis')
             os.makedirs(global_output_dir, exist_ok=True)
 
@@ -336,6 +329,12 @@ def main(config, args):
                 strategic_limit_point, diminishing_return_point, saturation_point
             ) = mmm_analysis.generate_aggregated_response_curve(mmm_results, config)
             
+            # --- DYNAMICALLY SET TOTAL INVESTMENT FROM MODEL BASELINE ---
+            total_monthly_investment = 0
+            if baseline_point and 'Daily_Investment' in baseline_point:
+                total_monthly_investment = baseline_point['Daily_Investment'] * 30
+            # ---------------------------------------------------------
+
             plot_filename = os.path.join(global_output_dir, 'combined_all_channels_saturation_curve.png')
             presentation.save_opportunity_curve_plot(
                 response_curve_df, baseline_point, max_efficiency_point, 
@@ -344,36 +343,38 @@ def main(config, args):
                 strategic_limit_point=strategic_limit_point,
                 config=config
             )
-            # ---------------------------------------------------
-
-            # --- Prepare and Generate Donut Charts ---
+            
+            # --- Prepare Data for Donut Charts and Tables ---
             total_investment_per_channel = investment_pivot_df.drop(columns='Date').sum()
             current_budget_split = (total_investment_per_channel / total_investment_per_channel.sum()).to_dict()
             
-            optimized_budget_split = historical_budget_split
-            strategic_budget_split = mmm_results['contribution_pct']
+            optimized_budget_split = analysis.find_optimal_historical_mix(kpi_df, daily_investment_df)
+            if not optimized_budget_split: optimized_budget_split = {}
+
+            # The MMM model returns contributions as percentages (0-100). Normalize to ratios (0-1).
+            strategic_budget_split_pct = mmm_results['contribution_pct']
+            strategic_budget_split_ratio = {k: v / 100.0 for k, v in strategic_budget_split_pct.items()}
 
             donut_scenarios = [
-                {'title': 'Atual (Média Histórica)', 'data': current_budget_split},
-                {'title': 'Otimizado (Pico de Eficiência)', 'data': optimized_budget_split},
-                {'title': 'Estratégico (Modelo de Elasticidade)', 'data': mmm_budget_split}
+                {'title': 'Atual (Média Histórica)', 'data': {k: v * total_monthly_investment for k, v in current_budget_split.items()}},
+                {'title': 'Otimizado (Pico de Eficiência)', 'data': {k: v * total_monthly_investment for k, v in optimized_budget_split.items()}},
+                {'title': 'Estratégico (Modelo de Elasticidade)', 'data': {k: v * total_monthly_investment for k, v in strategic_budget_split_ratio.items()}}
             ]
             
             donut_chart_path = os.path.join(global_output_dir, 'investment_distribution_donuts.png')
             presentation.save_investment_distribution_donuts(
                 donut_scenarios,
-                donut_chart_path,
-                total_investment=total_budget_optimized
+                donut_chart_path
             )
             
             saturation_md_path = os.path.join(global_output_dir, 'SATURATION_CURVE.md')
             presentation.create_comparative_saturation_md(
-                historical_budget_split,
-                mmm_budget_split,
+                optimized_budget_split,
+                strategic_budget_split_ratio, # Pass the normalized ratio
                 saturation_md_path
             )
             
-            gemini_report.generate_global_gemini_report(gemini_client, config, donut_scenarios, total_investment=total_budget_optimized)
+            gemini_report.generate_global_gemini_report(gemini_client, config, donut_scenarios, total_investment=total_monthly_investment)
         else:
             print("   - ❌ ERROR: Global MMM analysis failed. Skipping global report generation.")
 
@@ -394,7 +395,7 @@ def main(config, args):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Automated Total Opportunity Case Study Generator")
-    parser.add_argument("--config", default="local_project/inputs/local_config.json", help="Path to the JSON configuration file.")
+    parser.add_argument("--config", required=True, help="Path to the JSON configuration file.")
     parser.add_argument("--min_intervention_date", help="Optional: Filter events to only include those after this date (YYYY-MM-DD).")
     args = parser.parse_args()
 

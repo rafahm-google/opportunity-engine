@@ -329,22 +329,74 @@ def generate_aggregated_response_curve(mmm_results, config):
     # Calculate Incremental ROI
     # Add a small epsilon to avoid division by zero
     response_curve_df['Incremental_ROI'] = response_curve_df['Incremental_KPI'] / (response_curve_df['Incremental_Investment'] + 1e-9)
-    
-    # 2. Max Efficiency is the point with the highest Incremental ROI
-    # We only consider points with investment greater than the baseline
-    incremental_curve = response_curve_df[response_curve_df['Daily_Investment'] > baseline_investment]
-    if not incremental_curve.empty:
-        max_eff_idx = incremental_curve['Incremental_ROI'].idxmax()
-        max_efficiency_point = response_curve_df.loc[max_eff_idx].to_dict()
-    else:
-        # Fallback if there's no incremental curve
-        max_efficiency_point = baseline_point # Default to baseline
-    max_efficiency_point['Scenario'] = 'Máxima Eficiência'
 
-    # 3. Strategic Limit (e.g., 1.5x baseline)
-    strat_idx = (np.abs(multipliers - 1.5)).argmin()
-    strategic_limit_point = response_curve_df.iloc[strat_idx].to_dict()
-    strategic_limit_point['Scenario'] = 'Limite Estratégico'
+    # Calculate iCPA (Incremental Cost Per Acquisition)
+    response_curve_df['iCPA'] = (response_curve_df['Incremental_Investment'] / response_curve_df['Incremental_KPI']).replace([np.inf, -np.inf], np.nan).fillna(0)
+    
+    # 2. Max Efficiency (Knee Point Detection)
+    # We find the point of maximum curvature (the "knee" or "elbow")
+    # This represents the point where diminishing returns start to accelerate significantly.
+    
+    # Geometric "Knee" Detection (Vector Projection Method)
+    # We consider points from Baseline onwards
+    curve_segment = response_curve_df[response_curve_df['Daily_Investment'] >= baseline_investment].copy()
+    
+    if len(curve_segment) > 2:
+        # Normalize X and Y to 0-1 range to handle different scales
+        x = curve_segment['Daily_Investment'].values
+        y = curve_segment['Projected_Total_KPIs'].values
+        
+        min_x, max_x = x.min(), x.max()
+        min_y, max_y = y.min(), y.max()
+        
+        if max_x > min_x and max_y > min_y:
+            x_norm = (x - min_x) / (max_x - min_x)
+            y_norm = (y - min_y) / (max_y - min_y)
+            
+            # Vector from start (0,0) to end (1,1) of the segment
+            # In normalized coordinates, this is the line from (0,0) to (1,1).
+            # The "knee" is the point furthest from this diagonal line (assuming concave curve).
+            # Distance = |x_norm - y_norm| / sqrt(2)
+            
+            distances = np.abs(y_norm - x_norm) / np.sqrt(2)
+            max_idx_local = np.argmax(distances)
+            
+            # Get the row from the segment
+            max_efficiency_point = curve_segment.iloc[max_idx_local].to_dict()
+            max_efficiency_point['Scenario'] = 'Máxima Eficiência'
+        else:
+            # Flat line or single point
+            max_efficiency_point = baseline_point.copy()
+            max_efficiency_point['Scenario'] = 'Máxima Eficiência'
+    else:
+         # Not enough points
+         max_efficiency_point = baseline_point.copy()
+         max_efficiency_point['Scenario'] = 'Máxima Eficiência'
+
+    # 3. Strategic Limit
+    strategic_limit_point = None
+    optimization_target = config.get('optimization_target', 'REVENUE').upper()
+
+    if optimization_target == 'CONVERSIONS':
+        max_icpa = config.get('maximum_acceptable_icpa')
+        if max_icpa:
+            # Find the highest investment where iCPA is still acceptable
+            acceptable_df = response_curve_df[
+                (response_curve_df['iCPA'] <= max_icpa) & 
+                (response_curve_df['iCPA'] > 0) &
+                (response_curve_df['Incremental_Investment'] > 0)
+            ]
+            if not acceptable_df.empty:
+                strategic_limit_point_idx = acceptable_df['Incremental_Investment'].idxmax()
+                strategic_limit_point = response_curve_df.loc[strategic_limit_point_idx].to_dict()
+                strategic_limit_point['Scenario'] = 'Limite Estratégico'
+
+    # Fallback Logic for Strategic Limit (e.g., 1.5x baseline)
+    # Use this if no specific limit was found (e.g. REVENUE target or no iCPA set)
+    if strategic_limit_point is None:
+        strat_idx = (np.abs(multipliers - 1.5)).argmin()
+        strategic_limit_point = response_curve_df.iloc[strat_idx].to_dict()
+        strategic_limit_point['Scenario'] = 'Limite Estratégico'
     
     # Diminishing return point (placeholder)
     diminishing_return_point = None

@@ -174,7 +174,7 @@ def save_opportunity_curve_plot(response_curve_df, baseline_point, max_efficienc
     plot_point(max_efficiency_point, 'red', 'Máxima Eficiência', marker='*', size=200, ha='left', va='top', offset=(100000, 0))
     
     optimization_target = config.get('optimization_target', 'REVENUE').upper() if config else 'REVENUE'
-    if strategic_limit_point and optimization_target == 'REVENUE':
+    if strategic_limit_point:
         plot_point(strategic_limit_point, 'green', 'Limite Estratégico', marker='X', size=150, ha='center', va='bottom', offset=(0, 15))
 
     ax.set_title('Curva de Resposta: Cenários Estratégicos de Investimento (Mensal)', fontsize=20, pad=20)

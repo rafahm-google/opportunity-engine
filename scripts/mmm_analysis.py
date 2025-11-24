@@ -309,58 +309,58 @@ def generate_aggregated_response_curve(mmm_results, config):
     response_curve_df = pd.DataFrame(simulation_data)
     
     # --- Identify Key Points (using Daily Investment) ---
-    
+
     # 1. Baseline (Cenário Atual) is where the investment multiplier is 1.0
     baseline_idx = (np.abs(multipliers - 1.0)).argmin()
     baseline_point_row = response_curve_df.iloc[baseline_idx]
     baseline_point = baseline_point_row.to_dict()
     baseline_point['Scenario'] = 'Cenário Atual'
-    
+
     # --- Calculate Incremental Values Relative to Baseline ---
     baseline_investment = baseline_point['Daily_Investment']
     baseline_kpi = baseline_point['Projected_Total_KPIs']
-    
+
     response_curve_df['Incremental_Investment'] = response_curve_df['Daily_Investment'] - baseline_investment
     response_curve_df['Incremental_KPI'] = response_curve_df['Projected_Total_KPIs'] - baseline_kpi
-    
+
     # Ensure incremental values are not negative
     response_curve_df.loc[response_curve_df['Incremental_Investment'] < 0, ['Incremental_Investment', 'Incremental_KPI']] = 0
-    
+
     # Calculate Incremental ROI
     # Add a small epsilon to avoid division by zero
     response_curve_df['Incremental_ROI'] = response_curve_df['Incremental_KPI'] / (response_curve_df['Incremental_Investment'] + 1e-9)
 
     # Calculate iCPA (Incremental Cost Per Acquisition)
     response_curve_df['iCPA'] = (response_curve_df['Incremental_Investment'] / response_curve_df['Incremental_KPI']).replace([np.inf, -np.inf], np.nan).fillna(0)
-    
+
     # 2. Max Efficiency (Knee Point Detection)
     # We find the point of maximum curvature (the "knee" or "elbow")
     # This represents the point where diminishing returns start to accelerate significantly.
-    
+
     # Geometric "Knee" Detection (Vector Projection Method)
     # We consider points from Baseline onwards
     curve_segment = response_curve_df[response_curve_df['Daily_Investment'] >= baseline_investment].copy()
-    
+
     if len(curve_segment) > 2:
         # Normalize X and Y to 0-1 range to handle different scales
         x = curve_segment['Daily_Investment'].values
         y = curve_segment['Projected_Total_KPIs'].values
-        
+
         min_x, max_x = x.min(), x.max()
         min_y, max_y = y.min(), y.max()
-        
+
         if max_x > min_x and max_y > min_y:
             x_norm = (x - min_x) / (max_x - min_x)
             y_norm = (y - min_y) / (max_y - min_y)
-            
+
             # Vector from start (0,0) to end (1,1) of the segment
             # In normalized coordinates, this is the line from (0,0) to (1,1).
             # The "knee" is the point furthest from this diagonal line (assuming concave curve).
             # Distance = |x_norm - y_norm| / sqrt(2)
-            
+
             distances = np.abs(y_norm - x_norm) / np.sqrt(2)
             max_idx_local = np.argmax(distances)
-            
+
             # Get the row from the segment
             max_efficiency_point = curve_segment.iloc[max_idx_local].to_dict()
             max_efficiency_point['Scenario'] = 'Máxima Eficiência'
@@ -382,7 +382,7 @@ def generate_aggregated_response_curve(mmm_results, config):
         if max_icpa:
             # Find the highest investment where iCPA is still acceptable
             acceptable_df = response_curve_df[
-                (response_curve_df['iCPA'] <= max_icpa) & 
+                (response_curve_df['iCPA'] <= max_icpa) &
                 (response_curve_df['iCPA'] > 0) &
                 (response_curve_df['Incremental_Investment'] > 0)
             ]
@@ -397,7 +397,32 @@ def generate_aggregated_response_curve(mmm_results, config):
         strat_idx = (np.abs(multipliers - 1.5)).argmin()
         strategic_limit_point = response_curve_df.iloc[strat_idx].to_dict()
         strategic_limit_point['Scenario'] = 'Limite Estratégico'
-    
+
+    # --- NEW: Re-generate curve to ensure it extends to the full plot width ---
+    final_multiplier = (strategic_limit_point['Daily_Investment'] / total_avg_daily_spend) * 1.5 if total_avg_daily_spend > 0 else 0
+    final_multipliers = np.linspace(0, final_multiplier, 150) # Use more points for smoothness
+
+    final_simulation_data = []
+    for m in final_multipliers:
+        current_total_spend = total_avg_daily_spend * m
+        total_predicted_kpi = 0
+        for i, col in enumerate(active_spend_cols):
+            channel_spend = avg_daily_spend[col] * m
+            adstocked = channel_spend * adstock_factors.get(col, 1.0)
+            k = optimal_params['ks'][i]
+            s = optimal_params['ss'][i]
+            saturated = hill_transform(np.array([adstocked]), k, s)[0]
+            contribution = final_model.coef_[i] * saturated
+            total_predicted_kpi += contribution
+        total_predicted_kpi += final_model.intercept_
+        final_simulation_data.append({
+            'Daily_Investment': current_total_spend,
+            'Projected_Total_KPIs': total_predicted_kpi
+        })
+
+    response_curve_df = pd.DataFrame(final_simulation_data)
+    # --- END NEW ---
+
     # Diminishing return point (placeholder)
     diminishing_return_point = None
     saturation_point = None

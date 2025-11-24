@@ -382,7 +382,7 @@ def generate_html_report(gemini_client, results_data, config, image_paths, outpu
         print(f"   - ❌ ERROR: Could not write HTML report to file. Details: {e}")
 
 
-def generate_global_gemini_report(gemini_client, config, donut_scenarios=None, total_investment=None):
+def generate_global_gemini_report(gemini_client, config, scenarios=None, total_investment=None):
     """
     Generates a dedicated Gemini report for the global saturation analysis.
     """
@@ -487,66 +487,39 @@ def generate_global_gemini_report(gemini_client, config, donut_scenarios=None, t
 
     # --- New: Build detailed channel mix table ---
     channel_mix_html = ""
-    if donut_scenarios:
-        all_channels = sorted([
-            ch for ch in set(ch for s in donut_scenarios for ch in s['data'].keys())
-            if ch != 'Other'
-        ])
-        header = "<th>Canal</th>" + "".join(f"<th>{s['title']}</th>" for s in donut_scenarios)
-        
-        rows = ""
-        for channel in all_channels:
-            row = f"<tr><td><strong>{channel}</strong></td>"
-            for s in donut_scenarios:
-                value = s['data'].get(channel, 0)
-                total_scenario_investment = sum(s['data'].values())
-
-                # If the data is ratios (like for 'Atual'), calculate the absolute value
-                if total_scenario_investment > 0 and total_scenario_investment <= 10 and total_investment:
-                    absolute_value = value * total_investment
-                    percentage = value
-                # If the data is already absolute
-                else:
-                    absolute_value = value
-                    if total_scenario_investment > 0:
-                        percentage = value / total_scenario_investment
-                    else:
-                        percentage = 0
+    if scenarios:
+        for scen in scenarios:
+            title = scen['title']
+            
+            channel_mix_html += f"<h3>{title}</h3>"
+            header = "<th>Canal</th><th>Média Histórica</th><th>Pico de Eficiência</th><th>Modelo de Elasticidade</th>"
+            
+            rows = ""
+            all_channels = sorted(list(set(ch for split in scen['splits'].values() for ch in split.keys())))
+            
+            for channel in all_channels:
+                row = f"<tr><td><strong>{channel}</strong></td>"
+                for split_name in ['Média Histórica', 'Pico de Eficiência', 'Modelo de Elasticidade']:
+                    split = scen['splits'][split_name]
+                    investment = split.get(channel, 0)
+                    total_investment = sum(split.values())
+                    percentage = (investment / total_investment * 100) if total_investment > 0 else 0
+                    row += f"<td>{format_number(investment, currency=True)} ({percentage:.2f}%)</td>"
+                row += "</tr>"
+                rows += row
                 
-                # Handle cases where a channel might be missing or zero
-                if absolute_value == 0:
-                    cell_content = "R$ 0 (0.00%)"
-                else:
-                    cell_content = f"R$ {absolute_value:,.0f} ({percentage:.2%})"
-
-                row += f"<td>{cell_content}</td>"
-            row += "</tr>"
-            rows += row
-
-        # --- Build Total Row ---
-        total_row = "<tr><td><strong>Total</strong></td>"
-        for s in donut_scenarios:
-            scenario_data = s['data']
-            total_val = sum(scenario_data.values())
+            total_row = "<tr><td><strong>Total</strong></td>"
+            for split_name in ['Média Histórica', 'Pico de Eficiência', 'Modelo de Elasticidade']:
+                split = scen['splits'][split_name]
+                total_row += f"<td><strong>{format_number(sum(split.values()), currency=True)} (100.00%)</strong></td>"
+            total_row += "</tr>"
             
-            final_total = 0
-            # Heuristic to determine if the data is ratios or absolute values
-            if total_val > 0 and total_val <= 10 and total_investment:
-                final_total = total_investment # It's a ratio, use the provided total
-            else:
-                final_total = total_val # It's absolute, use the sum
-
-            total_row += f"<td><strong>R$ {final_total:,.0f} (100.00%)</strong></td>"
-        total_row += "</tr>"
-        # --- End Total Row ---
-            
-        channel_mix_html = f"""
-        <h3>Detalhamento do Mix de Canais</h3>
-        <table class="scenarios-table">
-            <thead><tr>{header}</tr></thead>
-            <tbody>{rows}{total_row}</tbody>
-        </table>
-        """
+            channel_mix_html += f"""
+            <table class="scenarios-table">
+                <thead><tr>{header}</tr></thead>
+                <tbody>{rows}{total_row}</tbody>
+            </table>
+            """
     # --- End New ---
 
     # Define CSS styles separately
@@ -596,14 +569,8 @@ def generate_global_gemini_report(gemini_client, config, donut_scenarios=None, t
             </div>
 
             <div class="section">
-                <h2>Distribuição de Investimento por Cenário</h2>
-                <p>Os gráficos de rosca abaixo detalham a alocação de orçamento para cada um dos três cenários, ilustrando as mudanças estratégicas no mix de canais de "always-on" (Atual e Estratégico) para campanhas de pico de performance (Otimizado).</p>
-                <div class="chart-container"><img src="data:image/png;base64,{donuts_img}" alt="Gráficos de Rosca da Distribuição de Investimento"></div>
-                {channel_mix_html}
-            </div>
-
-            <div class="section">
                 <h2>Análise Comparativa dos Cenários de Investimento</h2>
+                {channel_mix_html}
                 <p>{scenarios_intro}</p>
                 {scenarios_analysis_html}
             </div>

@@ -19,7 +19,6 @@
   "increase_threshold_percent": 50,
   "decrease_threshold_percent": 30,
   "post_event_days": 14,
-  "max_adstock_days": 7,
   "max_events_to_analyze": 5,
   "date_formats": {
     "investment_file": "%Y-%m-%d",

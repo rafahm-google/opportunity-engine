@@ -128,119 +128,167 @@ def save_sessions_bar_plot(sessions_bar_df, output_path, kpi_name='Sessions'):
     plt.savefig(output_path)
     plt.close(fig)
 
-def save_opportunity_curve_plot(response_curve_df, baseline_point, max_efficiency_point, 
-                                diminishing_return_point, saturation_point, filename, 
+def save_opportunity_curve_plot(response_curve_df, baseline_point, max_efficiency_point,
+                                diminishing_return_point, saturation_point, filename,
                                 kpi_name='Sessions', strategic_limit_point=None, config=None):
     """
-    Saves the saturation curve plot. Handles both daily and monthly input data
-    by checking for a 'Daily_Investment' column and converting if present.
+    Saves the saturation curve plot with smart labeling using ax.annotate.
     """
+    # 1. Safety Check
     if response_curve_df is None or response_curve_df.empty:
         print(f"   - ⚠️ WARNING: Response curve data is empty. Skipping plot generation for {filename}.")
         return
 
+    # 2. Data Preparation
     plot_df = response_curve_df.copy()
+
     # Standardize to monthly for plotting
     if 'Daily_Investment' in plot_df.columns:
         plot_df['Monthly_Investment'] = plot_df['Daily_Investment'] * 30
         plot_df['Monthly_KPIs'] = plot_df['Projected_Total_KPIs'] * 30
     else:
-        plot_df.rename(columns={'Projected_Total_KPIs': 'Monthly_KPIs', 'Investment': 'Monthly_Investment'}, inplace=True)
+        plot_df.rename(columns={'Projected_Total_KPIs': 'Monthly_KPIs',
+                                'Investment': 'Monthly_Investment'}, inplace=True)
 
-    unit_formatter = lambda x: f'R${x/1e6:.1f}M' if x >= 1e6 else f'R${x/1e3:.0f}k'
+    # Define formatters
+    def currency_fmt(x):
+        if x >= 1e6: return f'R${x/1e6:.1f}M'
+        if x >= 1e3: return f'R${x/1e3:.0f}k'
+        return f'R${x:.0f}'
+
     x_label = 'Investimento Mensal (R$)'
 
+    # 3. Plot Setup
     plt.style.use('seaborn-v0_8-whitegrid')
     fig, ax = plt.subplots(figsize=(18, 10))
 
-    ax.plot(plot_df['Monthly_Investment'], plot_df['Monthly_KPIs'], 
+    # Plot the main curve using TOTAL KPI
+    ax.plot(plot_df['Monthly_Investment'], plot_df['Monthly_KPIs'],
             label='Curva de Resposta Preditiva', color='royalblue', linewidth=2)
 
-    def plot_point(point, color, label, marker='o', size=100, ha='center', va='bottom', offset=(0, 10)):
-        if not point or 'Daily_Investment' not in point or 'Projected_Total_KPIs' not in point:
-            return
-        
-        # Consistently convert daily point data to monthly for plotting
-        monthly_inv = point['Daily_Investment'] * 30
-        monthly_kpi = point['Projected_Total_KPIs'] * 30
+    # --- INTERNAL HELPER FOR PLOTTING POINTS ---
+    def plot_point(point, color, label, marker='o', size=100, xytext=(0, 10)):
+        if not point: return
 
-        ax.scatter(monthly_inv, monthly_kpi, color=color, s=size, label=label, marker=marker, zorder=5)
-        
-        # Use a direct annotation which is simpler than arrowprops for this case
-        ax.text(monthly_inv + offset[0], monthly_kpi + offset[1], f'{label}\n{unit_formatter(monthly_inv)}', 
-                ha=ha, va=va, fontsize=12)
+        d_inv = point.get('Daily_Investment', 0)
+        d_kpi = point.get('Projected_Total_KPIs', 0)
+        monthly_inv = d_inv * 30
+        monthly_kpi = d_kpi * 30
 
-    plot_point(baseline_point, 'gray', 'Cenário Atual', marker='o', size=150, ha='right', va='top', offset=(-100000, -50))
-    plot_point(max_efficiency_point, 'red', 'Máxima Eficiência', marker='*', size=200, ha='left', va='top', offset=(100000, 0))
-    
-    optimization_target = config.get('optimization_target', 'REVENUE').upper() if config else 'REVENUE'
+        if monthly_inv == 0 and monthly_kpi == 0 and label != 'Cenário Atual': return
+
+        ax.scatter(monthly_inv, monthly_kpi, color=color, s=size, label=label, marker=marker, zorder=5, edgecolors='white', linewidth=1.5)
+
+        # Format Label Text (showing Total KPI as a full integer)
+        kpi_str = f'{monthly_kpi:,.0f}' # Using .0f for full integer with commas
+        label_text = f'{label}\n{currency_fmt(monthly_inv)}\n{kpi_str} {kpi_name}'
+
+        ax.annotate(label_text,
+                    xy=(monthly_inv, monthly_kpi),
+                    xytext=xytext,
+                    textcoords='offset points',
+                    ha='center', va='top', # va='top' for below-point placement
+                    fontsize=11,
+                    bbox=dict(boxstyle="round,pad=0.3", fc="white", ec=color, alpha=0.8),
+                    arrowprops=dict(arrowstyle="->", connectionstyle="arc3,rad=0.1", color=color))
+
+    # 4. Plotting Strategic Points
+    plot_point(baseline_point, 'gray', 'Cenário Atual',
+               marker='o', size=150, xytext=(0, -50))
+
+    plot_point(max_efficiency_point, 'red', 'Máxima Eficiência',
+               marker='*', size=250, xytext=(0, -50))
+
     if strategic_limit_point:
-        plot_point(strategic_limit_point, 'green', 'Limite Estratégico', marker='X', size=150, ha='center', va='bottom', offset=(0, 15))
+        plot_point(strategic_limit_point, 'green', 'Limite Estratégico',
+                   marker='X', size=150, xytext=(0, -50))
 
+    if diminishing_return_point:
+         plot_point(diminishing_return_point, 'orange', 'Retorno Decrescente',
+                    marker='D', size=100, xytext=(0, -50))
+
+    # 5. Final Cosmetics
     ax.set_title('Curva de Resposta: Cenários Estratégicos de Investimento (Mensal)', fontsize=20, pad=20)
     ax.set_xlabel(x_label, fontsize=16, labelpad=15)
     ax.set_ylabel(f'{kpi_name} Projetado (Mensal)', fontsize=16, labelpad=15)
-    
-    ax.xaxis.set_major_formatter(FuncFormatter(lambda x, p: unit_formatter(x).replace('R$', 'R$ ')))
-    ax.yaxis.set_major_formatter(FuncFormatter(lambda y, p: f'{y/1000:,.0f}k' if y > 0 else '0'))
-    
+
+    # Set formatters for axes (with full integer for y-axis)
+    ax.xaxis.set_major_formatter(FuncFormatter(lambda x, p: currency_fmt(x).replace('R$', 'R$ ')))
+    ax.yaxis.set_major_formatter(FuncFormatter(lambda y, p: f'{y:,.0f}')) # .0f for full integer
+
+    # --- Extend the x-axis ---
+    if strategic_limit_point and 'Daily_Investment' in strategic_limit_point:
+        max_investment_on_plot = strategic_limit_point['Daily_Investment'] * 30
+        ax.set_xlim(right=max_investment_on_plot * 1.5)
+    # --- End New ---
+
     ax.legend(fontsize=14, loc='upper left')
     plt.tick_params(axis='both', which='major', labelsize=12)
+
     plt.tight_layout()
     plt.savefig(filename, dpi=300)
     plt.close(fig)
     print(f"   - ✅ Chart saved to {filename}")
 
-def create_comparative_saturation_md(historical_scenarios, mmm_scenarios, output_path):
+def create_comparative_saturation_md(scenarios, output_filename):
     """
-    Generates a markdown file with side-by-side comparisons of the two methodologies.
+    Generates a markdown file with a separate table for each budget scenario,
+    each with the three splits.
     """
     
-    def create_table_from_dict(title, data_dict):
-        if not data_dict:
-            return f"### {title}\n\nNão há dados suficientes para gerar esta recomendação.\n"
-
-        sorted_items = sorted(data_dict.items(), key=lambda item: item[1], reverse=True)
-        sorted_keys = [item[0] for item in sorted_items]
-        sorted_values = [item[1] for item in sorted_items]
-
-        header = f"| Cenário           | {' | '.join(sorted_keys)} |\n"
-        separator = f"|:------------------|{'|:'.join(['---' for _ in sorted_keys])}|\n"
-        row = f"| Máxima Eficiência | {' | '.join([format_number(v, currency=True) for v in sorted_values])} |\n"
-        return f"### {title}\n\n{header}{separator}{row}\n"
-
-    historical_table = create_table_from_dict(
-        "Divisão de Investimento (Baseado no Mix de Máxima Eficiência Histórica)",
-        historical_scenarios
-    )
+    markdown_content = "# Análise Comparativa de Alocação de Orçamento\n\n"
     
-    mmm_table = create_table_from_dict(
-        "Divisão de Investimento (Baseado no Modelo de Elasticidade)",
-        mmm_scenarios
-    )
+    for scen in scenarios:
+        markdown_content += f"### {scen['title']}\n\n"
+        
+        header = "| Canal | Média Histórica | Pico de Eficiência | Modelo de Elasticidade |\n"
+        separator = "|:---|:---|:---|:---|\n"
+        
+        body = ""
+        all_channels = sorted(list(set(ch for split in scen['splits'].values() for ch in split.keys())))
+        
+        for channel in all_channels:
+            row = f"| **{channel}** |"
+            for split_name in ['Média Histórica', 'Pico de Eficiência', 'Modelo de Elasticidade']:
+                split = scen['splits'][split_name]
+                investment = split.get(channel, 0)
+                total_investment = sum(split.values())
+                percentage = (investment / total_investment * 100) if total_investment > 0 else 0
+                row += f" {format_number(investment, currency=True)} ({percentage:.2f}%) |"
+            body += row + "\n"
+            
+        total_row = "| **Total** |"
+        for split_name in ['Média Histórica', 'Pico de Eficiência', 'Modelo de Elasticidade']:
+            split = scen['splits'][split_name]
+            total_row += f" **{format_number(sum(split.values()), currency=True)} (100.00%)** |"
+        body += total_row + "\n"
+        
+        markdown_content += header + separator + body + "\n"
 
     methodology = """
 ---
 ## Como a Distribuição de Investimento é Calculada
 
-Esta análise apresenta duas abordagens data-driven para a alocação de orçamento. Cada uma oferece uma perspectiva estratégica diferente.
+Esta análise apresenta três abordagens data-driven para a alocação de orçamento. Cada uma oferece uma perspectiva estratégica diferente.
 
-### 1. Divisão Baseada no Mix de Máxima Eficiência Histórica
+### 1. Cenário Atual (Média Histórica)
+- **Metodologia:** Esta abordagem utiliza a média histórica de investimento como baseline.
+- **Ponto Forte:** Serve como um ponto de referência para avaliar o desempenho das outras estratégias.
+
+### 2. Cenário Otimizado (Pico de Eficiência)
 - **Metodologia:** Esta abordagem analisa o histórico de performance para identificar as 10 semanas de maior eficiência sustentada (KPIs vs. Investimento). A alocação de orçamento recomendada é a média do mix de canais utilizado durante esses períodos de pico.
 - **Ponto Forte:** Revela combinações de canais que comprovadamente geraram resultados de alto impacto em curtos períodos. É ideal para planejar campanhas intensivas e de alto crescimento.
 
-### 2. Divisão Baseada na Contribuição do Modelo de Elasticidade
+### 3. Cenário Estratégico (Modelo de Elasticidade)
 - **Metodologia:** Utiliza um modelo de elasticidade holístico que analisa todo o histórico de dados para decompor o KPI total nas contribuições individuais de cada canal, considerando efeitos de saturação e adstock. A alocação é proporcional à contribuição histórica modelada de cada canal.
 - **Ponto Forte:** Oferece uma visão estratégica do impacto "always-on" e de longo prazo de cada canal na base do negócio. É ideal para construir um plano de orçamento anual equilibrado e sustentável.
 """
 
-    with open(output_path, 'w', encoding='utf-8') as f:
-        f.write("# Análise Comparativa de Alocação de Orçamento\n\n")
-        f.write(historical_table)
-        f.write(mmm_table)
+    with open(output_filename, 'w', encoding='utf-8') as f:
+        f.write(markdown_content)
         f.write(methodology)
 
-    print(f"   - ✅ Successfully generated comparative MD file at: {output_path}")
+    print(f"   - ✅ Successfully generated comparative MD file at: {output_filename}")
 
 def save_investment_distribution_donuts(donut_scenarios, output_path, total_investment=None):
     """

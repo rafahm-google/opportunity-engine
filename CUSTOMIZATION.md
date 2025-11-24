@@ -33,15 +33,16 @@ If your investment file has columns named `day`, `cost`, and `channel`, you woul
 
 ### b. Performance Data
 
-In the `performance_file` section, you tell the script which column contains your main business KPI (e.g., "Conversions", "Leads", "Sessions"). This requires setting two parameters in your `config.json`.
+In the `performance_file` section, you specify which column from your data contains the primary business metric (e.g., "Conversions", "Leads", "Sessions"). This involves two parameters in your `config.json` that work together:
 
-*   `performance_kpi_column` (at the top level of the config): This tells the script the name of your primary KPI for the entire analysis.
-*   `kpi_col` (inside `column_mapping`): This tells the script the **exact** column header name from your `performance-data.csv` file.
+*   **`kpi_col`** (inside `column_mapping` -> `performance_file`): This is the **most critical** setting. It must match the **exact** column header in your performance CSV file. This tells the script which data to load and analyze.
 
-For the analysis to work correctly, you should set **both** of these parameters to the name of your KPI column.
+*   **`performance_kpi_column`** (at the top level of the config): This sets a "friendly name" for your KPI that will be used in the titles and descriptions of the final reports.
+
+For consistency, it is best practice to set both parameters to the same value.
 
 **Example:**
-If your performance file has a column named `Conversions` that you want to use as your primary KPI, your `config.json` must be set up like this:
+If your performance CSV has a column named `Conversions` that you want to analyze, your `config.json` should be set up like this for maximum clarity in the reports:
 
 ```json
 "performance_kpi_column": "Conversions",

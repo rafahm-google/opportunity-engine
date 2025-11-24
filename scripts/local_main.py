@@ -355,26 +355,42 @@ def main(config, args):
             strategic_budget_split_pct = mmm_results['contribution_pct']
             strategic_budget_split_ratio = {k: v / 100.0 for k, v in strategic_budget_split_pct.items()}
 
-            donut_scenarios = [
-                {'title': 'Atual (Média Histórica)', 'data': {k: v * total_monthly_investment for k, v in current_budget_split.items()}},
-                {'title': 'Otimizado (Pico de Eficiência)', 'data': {k: v * total_monthly_investment for k, v in optimized_budget_split.items()}},
-                {'title': 'Estratégico (Modelo de Elasticidade)', 'data': {k: v * total_monthly_investment for k, v in strategic_budget_split_ratio.items()}}
+            scenarios = [
+                {
+                    'title': 'Cenário de Investimento Atual',
+                    'total_investment': total_monthly_investment,
+                    'splits': {
+                        'Média Histórica': {k: v * total_monthly_investment for k, v in current_budget_split.items()},
+                        'Pico de Eficiência': {k: v * total_monthly_investment for k, v in optimized_budget_split.items()},
+                        'Modelo de Elasticidade': {k: v * total_monthly_investment for k, v in strategic_budget_split_ratio.items()}
+                    }
+                },
+                {
+                    'title': 'Cenário de Investimento Otimizado',
+                    'total_investment': max_efficiency_point['Daily_Investment'] * 30,
+                    'splits': {
+                        'Média Histórica': {k: v * max_efficiency_point['Daily_Investment'] * 30 for k, v in current_budget_split.items()},
+                        'Pico de Eficiência': {k: v * max_efficiency_point['Daily_Investment'] * 30 for k, v in optimized_budget_split.items()},
+                        'Modelo de Elasticidade': {k: v * max_efficiency_point['Daily_Investment'] * 30 for k, v in strategic_budget_split_ratio.items()}
+                    }
+                },
+                {
+                    'title': 'Cenário de Investimento Estratégico',
+                    'total_investment': strategic_limit_point['Daily_Investment'] * 30,
+                    'splits': {
+                        'Média Histórica': {k: v * strategic_limit_point['Daily_Investment'] * 30 for k, v in current_budget_split.items()},
+                        'Pico de Eficiência': {k: v * strategic_limit_point['Daily_Investment'] * 30 for k, v in optimized_budget_split.items()},
+                        'Modelo de Elasticidade': {k: v * strategic_limit_point['Daily_Investment'] * 30 for k, v in strategic_budget_split_ratio.items()}
+                    }
+                }
             ]
             
-            donut_chart_path = os.path.join(global_output_dir, 'investment_distribution_donuts.png')
-            presentation.save_investment_distribution_donuts(
-                donut_scenarios,
-                donut_chart_path
-            )
             
-            saturation_md_path = os.path.join(global_output_dir, 'SATURATION_CURVE.md')
-            presentation.create_comparative_saturation_md(
-                optimized_budget_split,
-                strategic_budget_split_ratio, # Pass the normalized ratio
-                saturation_md_path
-            )
+            # Create the comparative markdown file
+            saturation_md_output_path = os.path.join(global_output_dir, "SATURATION_CURVE.md")
+            presentation.create_comparative_saturation_md(scenarios, saturation_md_output_path)
             
-            gemini_report.generate_global_gemini_report(gemini_client, config, donut_scenarios, total_investment=total_monthly_investment)
+            gemini_report.generate_global_gemini_report(gemini_client, config, scenarios)
         else:
             print("   - ❌ ERROR: Global MMM analysis failed. Skipping global report generation.")
 

@@ -129,7 +129,7 @@ Example `config.json`:
 ```
 
 **c. Prepare Your Input Data:**
-The script requires three CSV files, which should be placed in your `inputs/` directory. The paths and column names must be correctly specified in the `config.json` file. For more details on the data format, see the **[Advanced Customization Guide](CUSTOMIZATION.md)**.
+The script requires two CSV files for investment and performance data. A third CSV file for generic market trends is optional but recommended. These files should be placed in your `inputs/` directory. The paths and column names must be correctly specified in the `config.json` file. For more details on the data format, see the **[Advanced Customization Guide](CUSTOMIZATION.md)**.
 
 ---
 

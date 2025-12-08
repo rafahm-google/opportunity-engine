@@ -127,6 +127,9 @@ def main(config, args):
         
         # --- New Code: Load performance data for additional covariates ---
         performance_df = pd.read_csv(config['performance_file_path'], on_bad_lines='skip')
+        perf_map = config.get('column_mapping', {}).get('performance_file', {})
+        date_col = perf_map.get('date_col', 'date')
+        performance_df.rename(columns={date_col: 'Date'}, inplace=True)
         # --- End New Code ---
 
         kpi_col = config.get('performance_kpi_column', 'Sessions')

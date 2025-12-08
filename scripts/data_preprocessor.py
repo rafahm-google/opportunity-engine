@@ -42,11 +42,29 @@ def load_and_prepare_data(config):
         inv_map = mapping.get('investment_file', {})
         perf_map = mapping.get('performance_file', {})
         trends_map = mapping.get('generic_trends_file', {})
+        date_formats = config.get('date_formats', {})
 
         # --- Load Data ---
         kpi_df = pd.read_csv(config['performance_file_path'], thousands=',')
         daily_investment_df = pd.read_csv(config['investment_file_path'], thousands=',')
-        trends_df = pd.read_csv(config['generic_trends_file_path'], thousands=',')
+        
+        if 'generic_trends_file_path' in config and config['generic_trends_file_path']:
+            try:
+                trends_df = pd.read_csv(config['generic_trends_file_path'], thousands=',')
+                trends_df.rename(columns={
+                    trends_map.get('date_col', 'Start Date'): 'Date',
+                    trends_map.get('trends_col', 'Ad Opportunities'): 'Generic Searches'
+                }, inplace=True)
+                trends_df['Date'] = pd.to_datetime(trends_df['Date'], format=date_formats.get('generic_trends_file'), errors='coerce')
+                trends_df.dropna(subset=['Date'], inplace=True)
+                trends_df = trends_df[['Date', 'Generic Searches']].sort_values(by='Date').reset_index(drop=True)
+            except FileNotFoundError:
+                print("   - WARNING: Generic trends file not found. Continuing without trends data.")
+                trends_df = pd.DataFrame(columns=['Date', 'Generic Searches'])
+        else:
+            print("   - INFO: No generic trends file path provided. Continuing without trends data.")
+            trends_df = pd.DataFrame(columns=['Date', 'Generic Searches'])
+
         
         # --- Dynamically Rename Columns ---
         kpi_df.rename(columns={
@@ -66,21 +84,13 @@ def load_and_prepare_data(config):
             inv_map.get('investment_col', 'total_revenue'): 'investment'
         }, inplace=True)
 
-        trends_df.rename(columns={
-            trends_map.get('date_col', 'Start Date'): 'Date',
-            trends_map.get('trends_col', 'Ad Opportunities'): 'Generic Searches'
-        }, inplace=True)
-
         # --- Date Formatting ---
-        date_formats = config.get('date_formats', {})
         kpi_df['Date'] = pd.to_datetime(kpi_df['Date'], format=date_formats.get('performance_file'), errors='coerce')
         daily_investment_df['Date'] = pd.to_datetime(daily_investment_df['Date'], format=date_formats.get('investment_file'), errors='coerce')
-        trends_df['Date'] = pd.to_datetime(trends_df['Date'], format=date_formats.get('generic_trends_file'), errors='coerce')
 
         # --- Data Cleaning & Validation ---
         kpi_df.dropna(subset=['Date', 'Sessions'], inplace=True)
         daily_investment_df.dropna(subset=['Date', 'investment', 'Product Group'], inplace=True)
-        trends_df.dropna(subset=['Date'], inplace=True)
 
         # --- Debug: Print Date Ranges ---
         print(f"   - KPI Data Date Range: {kpi_df['Date'].min()} to {kpi_df['Date'].max()}")
@@ -89,7 +99,6 @@ def load_and_prepare_data(config):
 
         kpi_df = kpi_df[['Date', 'Sessions']].sort_values(by='Date').reset_index(drop=True)
         daily_investment_df = daily_investment_df[['Date', 'Product Group', 'investment']].sort_values(by='Date').reset_index(drop=True)
-        trends_df = trends_df[['Date', 'Generic Searches']].sort_values(by='Date').reset_index(drop=True)
 
         print("   - Data loaded and columns renamed successfully.")
         
@@ -113,6 +122,8 @@ def load_and_prepare_data(config):
         # --- Final Correlation Matrix (for display) ---
         final_pivot = daily_investment_df.pivot_table(index='Date', columns='Product Group', values='investment').fillna(0)
         final_merged = pd.merge(kpi_df.rename(columns={'Sessions': 'kpi'}), final_pivot, on='Date', how='inner')
+        if not trends_df.empty:
+            final_merged = pd.merge(final_merged, trends_df, on='Date', how='left')
         correlation_matrix = final_merged.corr(numeric_only=True)
         print("\n" + "="*50 + "\n📊 Final Correlation Matrix (Post-Processing)\n" + "="*50)
         print(correlation_matrix)

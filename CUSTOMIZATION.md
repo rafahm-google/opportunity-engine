@@ -56,12 +56,14 @@ If your performance CSV has a column named `Conversions` that you want to analyz
 }
 ```
 
-### c. Generic Trends Data
+### c. Generic Trends Data (Optional)
 
-In the `generic_trends_file` section, you can specify the names for the date and trends columns.
+In the `generic_trends_file` section, you can specify the names for the date and trends columns. This file is used to provide the model with context about general market trends (e.g., search volume, competitor activity) that might influence your business outcomes.
+
+**This input is optional.** If you do not provide a path in the `generic_trends_file_path` setting in your `config.json`, the analysis will run without this data.
 
 *   `date_col`: The name of the column containing the date.
-*   `trends_col`: The name of the column that provides general market data (e.g., search volume, ad opportunities).
+*   `trends_col`: The name of the column that provides general market data.
 
 **Example:**
 If your trends file uses `data` for the date and `buscas` for the trend data:

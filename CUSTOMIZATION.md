@@ -31,6 +31,8 @@ If your investment file has columns named `day`, `cost`, and `channel`, you woul
 }
 ```
 
+**Note:** The script automatically strips leading and trailing whitespace from the channel names found in the `channel_col`. This ensures that "Channel A" and "Channel A " are treated as the same channel.
+
 ### b. Performance Data
 
 In the `performance_file` section, you specify which column from your data contains the primary business metric (e.g., "Conversions", "Leads", "Sessions"). This involves two parameters in your `config.json` that work together:
@@ -146,6 +148,25 @@ This allows you to tailor the recommendations to your company's specific profita
   "conversion_rate_from_kpi_to_bo": 0.015,
   "minimum_acceptable_iroi": 1.5,
   "p_value_threshold": 0.1,
+  ...
+}
+```
+
+## 5. Data Cleaning & Outlier Treatment
+
+Real-world data often contains anomalies or "spikes" (e.g., a tracking bug causing 10x traffic for one day) that can distort statistical models. To robustly handle such data, the engine includes a configurable outlier treatment feature.
+
+You can control this behavior using the `treat_outliers` parameter in your `config.json`.
+
+*   **`"treat_outliers": true`**: (Boolean) Automatically detects and caps outliers in your primary KPI column (the one defined in `performance_kpi_column`) using the Interquartile Range (IQR) method (1.5 * IQR).
+*   **`"treat_outliers": ["Sessions", "Conversions"]`**: (List of Strings) Allows you to specify exactly which columns in your performance data should be treated.
+*   **`"treat_outliers": false`** (Default): No outlier treatment is applied. Use this if your data spikes are genuine (e.g., successful campaigns) and you want the model to fully account for them.
+
+**Example:**
+```json
+{
+  "advertiser_name": "Advertiser C",
+  "treat_outliers": ["Sessions"],
   ...
 }
 ```

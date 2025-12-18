@@ -413,6 +413,9 @@ def run_opportunity_projection(kpi_df, daily_investment_df, market_trends_df, pr
         projected_kpis = [base_kpi + ((hill_transform((inv / (1 - best_alpha)), best_k, best_s)) * max_kpi_scaler) for inv in investment_scenarios]
         
         response_curve_df = pd.DataFrame({'Daily_Investment': investment_scenarios, 'Projected_Total_KPIs': projected_kpis})
+        
+        # Clip Projected_Total_KPIs to prevent negative values
+        response_curve_df['Projected_Total_KPIs'] = response_curve_df['Projected_Total_KPIs'].clip(lower=0)
 
         conversion_rate = config.get('conversion_rate_from_kpi_to_bo', 0)
         avg_ticket = config.get('average_ticket', 0)

@@ -84,6 +84,9 @@ def load_and_prepare_data(config):
             inv_map.get('investment_col', 'total_revenue'): 'investment'
         }, inplace=True)
 
+        # Standardize product group names by stripping whitespace
+        daily_investment_df['Product Group'] = daily_investment_df['Product Group'].str.strip()
+
         # --- Date Formatting ---
         kpi_df['Date'] = pd.to_datetime(kpi_df['Date'], format=date_formats.get('performance_file'), errors='coerce')
         daily_investment_df['Date'] = pd.to_datetime(daily_investment_df['Date'], format=date_formats.get('investment_file'), errors='coerce')
@@ -91,6 +94,22 @@ def load_and_prepare_data(config):
         # --- Data Cleaning & Validation ---
         kpi_df.dropna(subset=['Date', 'Sessions'], inplace=True)
         daily_investment_df.dropna(subset=['Date', 'investment', 'Product Group'], inplace=True)
+
+        # --- Conditional Outlier Treatment ---
+        outlier_config = config.get('treat_outliers', False)
+        if outlier_config:
+            print("   - Applying outlier treatment...")
+            if isinstance(outlier_config, list):
+                # Treat specific columns listed in config
+                for col in outlier_config:
+                    if col in kpi_df.columns:
+                        kpi_df = treat_outliers(kpi_df, col)
+                        print(f"     - Treated outliers in KPI column: '{col}'")
+                    # Note: Could extend to investment_df if needed, but keeping scope to KPI for now
+            elif isinstance(outlier_config, bool) and outlier_config:
+                # Default to treating the KPI column
+                kpi_df = treat_outliers(kpi_df, 'Sessions')
+                print(f"     - Treated outliers in KPI column: 'Sessions'")
 
         # --- Debug: Print Date Ranges ---
         print(f"   - KPI Data Date Range: {kpi_df['Date'].min()} to {kpi_df['Date'].max()}")

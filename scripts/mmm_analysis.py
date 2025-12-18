@@ -201,7 +201,8 @@ def run_mmm_engine(config):
         },
         "spend_cols": spend_cols,
         "kpi_col": kpi_col,
-        "dataframe": df
+        "dataframe": df,
+        "other_features": other_features
     }
 
 def plot_response_curves(mmm_results, config):
@@ -277,6 +278,19 @@ def generate_aggregated_response_curve(mmm_results, config):
         dummy_adstock = geometric_adstock(dummy_spend, alpha)
         adstock_factors[col] = dummy_adstock[-1] # Steady state factor
     
+    # --- Calculate Baseline Contribution from Other Features ---
+    other_features = mmm_results.get('other_features', [])
+    non_marketing_contribution = 0
+    if other_features:
+        # Calculate mean values for other features
+        means = df[other_features].mean()
+        
+        # Coefficients for other features start after the spend columns
+        start_idx = len(active_spend_cols)
+        for idx, feature in enumerate(other_features):
+             coef_idx = start_idx + idx
+             non_marketing_contribution += final_model.coef_[coef_idx] * means[feature]
+    
     for m in multipliers:
         current_total_spend = total_avg_daily_spend * m
         total_predicted_kpi = 0
@@ -298,8 +312,8 @@ def generate_aggregated_response_curve(mmm_results, config):
             contribution = final_model.coef_[i] * saturated
             total_predicted_kpi += contribution
         
-        # Add intercept
-        total_predicted_kpi += final_model.intercept_
+        # Add intercept AND non-marketing contribution
+        total_predicted_kpi += final_model.intercept_ + non_marketing_contribution
 
         simulation_data.append({
             'Daily_Investment': current_total_spend,
@@ -307,6 +321,9 @@ def generate_aggregated_response_curve(mmm_results, config):
         })
         
     response_curve_df = pd.DataFrame(simulation_data)
+    
+    # Clip Projected_Total_KPIs to prevent negative values
+    response_curve_df['Projected_Total_KPIs'] = response_curve_df['Projected_Total_KPIs'].clip(lower=0)
     
     # --- Identify Key Points (using Daily Investment) ---
 
@@ -414,13 +431,15 @@ def generate_aggregated_response_curve(mmm_results, config):
             saturated = hill_transform(np.array([adstocked]), k, s)[0]
             contribution = final_model.coef_[i] * saturated
             total_predicted_kpi += contribution
-        total_predicted_kpi += final_model.intercept_
+        total_predicted_kpi += final_model.intercept_ + non_marketing_contribution
         final_simulation_data.append({
             'Daily_Investment': current_total_spend,
             'Projected_Total_KPIs': total_predicted_kpi
         })
 
     response_curve_df = pd.DataFrame(final_simulation_data)
+    # Clip Projected_Total_KPIs to prevent negative values
+    response_curve_df['Projected_Total_KPIs'] = response_curve_df['Projected_Total_KPIs'].clip(lower=0)
     # --- END NEW ---
 
     # Diminishing return point (placeholder)

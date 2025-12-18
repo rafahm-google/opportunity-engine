@@ -105,6 +105,7 @@ Example `config.json`:
   "decrease_threshold_percent": 30,
   "post_event_days": 14,
   "max_events_to_analyze": 5,
+  "treat_outliers": ["Sessions"],
   "date_formats": {
     "investment_file": "%Y-%m-%d",
     "performance_file": "%Y-%m-%d",

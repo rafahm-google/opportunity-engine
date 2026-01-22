@@ -23,11 +23,11 @@ import os
 
 import analysis
 import google_api
-import presentation
 import recommendations
-import gemini_report
 import saturation_curve
 import mmm_analysis
+from gemini_report import generate_html_report, generate_global_gemini_report
+from presentation import save_accuracy_plot, save_line_chart_plot, save_investment_bar_plot, save_sessions_bar_plot, save_opportunity_curve_plot, create_comparative_saturation_md, save_investment_distribution_donuts
 
 
 def _create_presentation_dataframe(causal_results, baseline_point, max_efficiency_point, diminishing_return_point, strategic_limit_point, config, post_period, channel_proportions):
@@ -237,7 +237,6 @@ def main(config, args):
                         csv_output_filename = os.path.join(base_output_dir, f"{advertiser_name}_analysis_results.csv")
 
                         # --- Optimization: Caching for saturation models ---
-                        projection_cache = {}
 
                         for analyzed_event in top_events_to_report:
                             event = analyzed_event['event']
@@ -272,16 +271,16 @@ def main(config, args):
                                 
                                 image_paths = {}
                                 image_paths['accuracy'] = os.path.join(event_output_dir, f"accuracy_plot_{file_base_name}.png")
-                                presentation.save_accuracy_plot(results_data, analyzed_event['accuracy_df'], image_paths['accuracy'], kpi_name=kpi_col)
+                                save_accuracy_plot(results_data, analyzed_event['accuracy_df'], image_paths['accuracy'], kpi_name=kpi_col)
 
                                 image_paths['line'] = os.path.join(event_output_dir, f"line_chart_{file_base_name}.png")
-                                presentation.save_line_chart_plot(analyzed_event['line_df'], image_paths['line'], kpi_name=kpi_col)
+                                save_line_chart_plot(analyzed_event['line_df'], image_paths['line'], kpi_name=kpi_col)
                                 
                                 image_paths['investment'] = os.path.join(event_output_dir, f"investment_chart_{file_base_name}.png")
-                                presentation.save_investment_bar_plot(analyzed_event['inv_bar_df'], image_paths['investment'])
+                                save_investment_bar_plot(analyzed_event['inv_bar_df'], image_paths['investment'])
 
                                 image_paths['sessions'] = os.path.join(event_output_dir, f"sessions_chart_{file_base_name}.png")
-                                presentation.save_sessions_bar_plot(analyzed_event['sessions_bar_df'], image_paths['sessions'], kpi_name=kpi_col)
+                                save_sessions_bar_plot(analyzed_event['sessions_bar_df'], image_paths['sessions'], kpi_name=kpi_col)
 
                                 # --- New: Add path for the opportunity curve plot ---
                                 opportunity_plot_name = 'combined_event_saturation_curve.png' if len(product_group_for_report.split(',')) > 1 else f'{product_group_for_report.replace(" ", "_")}_saturation_curve.png'
@@ -295,7 +294,7 @@ def main(config, args):
                                 print(f"   ✅ SUCCESS! Comprehensive data saved to: {csv_filename}")
 
                                 html_report_filename = os.path.join(event_output_dir, f"gemini_report_{file_base_name}.html")
-                                gemini_report.generate_html_report(gemini_client, results_data, config, image_paths, html_report_filename, market_analysis_df, analyzed_event['line_df'], scenarios_df, channel_proportions, csv_output_filename=csv_filename, correlation_matrix=correlation_matrix)
+                                generate_html_report(gemini_client, results_data, config, image_paths, html_report_filename, market_analysis_df, analyzed_event['line_df'], scenarios_df, channel_proportions, csv_output_filename=csv_filename, correlation_matrix=correlation_matrix)
 
                                 recommendations.generate_recommendations_file(results_data, scenarios_df, config, event_output_dir, channel_proportions)
 
@@ -339,7 +338,7 @@ def main(config, args):
             # ---------------------------------------------------------
 
             plot_filename = os.path.join(global_output_dir, 'combined_all_channels_saturation_curve.png')
-            presentation.save_opportunity_curve_plot(
+            save_opportunity_curve_plot(
                 response_curve_df, baseline_point, max_efficiency_point, 
                 diminishing_return_point, saturation_point, plot_filename, 
                 kpi_name=config.get('performance_kpi_column', 'Sessions'),
@@ -389,11 +388,18 @@ def main(config, args):
             ]
             
             
+            kpi_projections = {
+                'current': baseline_point,
+                'optimized': max_efficiency_point,
+                'strategic': strategic_limit_point
+            }
+
             # Create the comparative markdown file
             saturation_md_output_path = os.path.join(global_output_dir, "SATURATION_CURVE.md")
-            presentation.create_comparative_saturation_md(scenarios, saturation_md_output_path)
-            
-            gemini_report.generate_global_gemini_report(gemini_client, config, scenarios)
+            kpi_name = config.get('primary_business_metric_name', 'KPIs')
+            create_comparative_saturation_md(scenarios, saturation_md_output_path, kpi_projections=kpi_projections, kpi_name=kpi_name)
+
+            generate_global_gemini_report(gemini_client, config, scenarios, kpi_projections=kpi_projections)
         else:
             print("   - ❌ ERROR: Global MMM analysis failed. Skipping global report generation.")
 

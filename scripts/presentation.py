@@ -116,10 +116,21 @@ def save_sessions_bar_plot(sessions_bar_df, output_path, kpi_name='Sessions'):
     plt.style.use('seaborn-v0_8-whitegrid')
     fig, ax = plt.subplots(figsize=(10, 7))
     
-    sessions_bar_df.index = [f'Forecasted {kpi_name}', f'Actual {kpi_name}']
+    # Robust index renaming
+    if 'Forecasted' in sessions_bar_df.index and 'Actual' in sessions_bar_df.index:
+         new_index = {
+             'Forecasted': f'Forecasted {kpi_name}',
+             'Actual': f'Actual {kpi_name}'
+         }
+         sessions_bar_df = sessions_bar_df.rename(index=new_index)
+    else:
+         # Fallback if upstream logic changes (though analysis.py currently sets it correctly)
+         sessions_bar_df.index = [f'Forecasted {kpi_name}', f'Actual {kpi_name}']
     
-    # Assuming the dataframe is ordered Forecasted then Actual
-    sessions_bar_df.plot(kind='bar', ax=ax, color=['red', 'black'], legend=None)
+    # Ensure colors map to the correct semantic meaning regardless of order
+    colors = ['red' if 'Forecasted' in str(x) else 'black' for x in sessions_bar_df.index]
+    
+    sessions_bar_df.plot(kind='bar', ax=ax, color=colors, legend=None)
     ax.set_title(f'Actual vs. Forecasted {kpi_name}', fontsize=16)
     ax.set_ylabel(f'Total {kpi_name}', fontsize=12)
     ax.tick_params(axis='x', rotation=0)
@@ -230,13 +241,42 @@ def save_opportunity_curve_plot(response_curve_df, baseline_point, max_efficienc
     plt.close(fig)
     print(f"   - ✅ Chart saved to {filename}")
 
-def create_comparative_saturation_md(scenarios, output_filename):
+def create_comparative_saturation_md(scenarios, output_filename, kpi_projections=None, kpi_name='KPIs'):
     """
     Generates a markdown file with a separate table for each budget scenario,
     each with the three splits.
     """
     
     markdown_content = "# Análise Comparativa de Alocação de Orçamento\n\n"
+
+    # --- New: Summary Table ---
+    if kpi_projections:
+        markdown_content += "## Resumo dos Cenários Projetados\n\n"
+        markdown_content += f"| Cenário | Investimento Mensal | Projeção de {kpi_name} | Custo por {kpi_name} (CPA) | {kpi_name} Incrementais |\n"
+        markdown_content += "|:---|:---|:---|:---|:---|\n"
+        
+        scenario_map = [
+            ('Cenário Atual (Média Histórica)', 'current'),
+            ('Cenário Otimizado (Pico de Eficiência)', 'optimized'),
+            ('Cenário Estratégico (Modelo de Elasticidade)', 'strategic')
+        ]
+        
+        for title, key in scenario_map:
+            point = kpi_projections.get(key)
+            if point:
+                inv = point.get('Daily_Investment', 0) * 30
+                kpi = point.get('Projected_Total_KPIs', 0) * 30
+                inc_kpi = point.get('Incremental_KPI', 0) * 30
+                cpa = inv / kpi if kpi > 0 else 0
+                
+                inv_str = format_number(inv, currency=True)
+                kpi_str = format_number(kpi)
+                cpa_str = format_number(cpa, currency=True)
+                inc_kpi_str = format_number(inc_kpi)
+                
+                markdown_content += f"| **{title}** | {inv_str} | {kpi_str} | {cpa_str} | {inc_kpi_str} |\n"
+        markdown_content += "\n---\n\n"
+    # --- End New ---
     
     for scen in scenarios:
         markdown_content += f"### {scen['title']}\n\n"

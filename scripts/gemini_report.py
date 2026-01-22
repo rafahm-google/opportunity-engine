@@ -9,6 +9,7 @@ aligned with the Total Opportunity framework.
 import base64
 import json
 import os
+import html
 import pandas as pd
 import google.generativeai as genai
 from presentation import format_number
@@ -347,7 +348,7 @@ def generate_html_report(gemini_client, results_data, config, image_paths, outpu
     </body>
     </html>
     """.format(
-        report_title=narrative.get('report_title', 'Análise de Impacto Causal'),
+        report_title=html.escape(narrative.get('report_title', 'Análise de Impacto Causal')),
         value_delivered_narrative=narrative.get('part1_value_delivered', {}).get('narrative', ''),
         methodology_narrative=narrative.get('part1_value_delivered', {}).get('methodology_narrative', ''),
         projected_impact_narrative=narrative.get('part2_projected_impact', {}).get('narrative', ''),
@@ -382,7 +383,7 @@ def generate_html_report(gemini_client, results_data, config, image_paths, outpu
         print(f"   - ❌ ERROR: Could not write HTML report to file. Details: {e}")
 
 
-def generate_global_gemini_report(gemini_client, config, scenarios=None, total_investment=None):
+def generate_global_gemini_report(gemini_client, config, scenarios=None, total_investment=None, kpi_projections=None):
     """
     Generates a dedicated Gemini report for the global saturation analysis.
     """
@@ -394,7 +395,6 @@ def generate_global_gemini_report(gemini_client, config, scenarios=None, total_i
     # --- 1. Define paths and read artifacts ---
     markdown_path = os.path.join(global_output_dir, 'SATURATION_CURVE.md')
     response_curve_path = os.path.join(global_output_dir, 'combined_all_channels_saturation_curve.png')
-    donuts_path = os.path.join(global_output_dir, 'investment_distribution_donuts.png')
     
     try:
         with open(markdown_path, 'r', encoding='utf-8') as f:
@@ -404,8 +404,7 @@ def generate_global_gemini_report(gemini_client, config, scenarios=None, total_i
         return
 
     image_b64s = {
-        "response_curve": _get_image_as_base64(response_curve_path),
-        "donuts": _get_image_as_base64(donuts_path)
+        "response_curve": _get_image_as_base64(response_curve_path)
     }
 
     # --- 2. Define the JSON structure for Gemini ---
@@ -451,8 +450,7 @@ def generate_global_gemini_report(gemini_client, config, scenarios=None, total_i
     ```
 
     **2. Visualizações Chave:**
-    - A primeira imagem é a 'Curva de Resposta', mostrando o KPI projetado em diferentes níveis de investimento mensal.
-    - A segunda imagem é a 'Distribuição de Investimento (Donuts)', comparando o mix de canais para os três cenários.
+    - A imagem é a 'Curva de Resposta', mostrando o KPI projetado em diferentes níveis de investimento mensal.
 
     **SUA TAREFA:**
     Analise os dados e as imagens para gerar uma narrativa coesa e perspicaz. O foco é a clareza e a concisão para um público executivo.
@@ -543,6 +541,43 @@ def generate_global_gemini_report(gemini_client, config, scenarios=None, total_i
     .scenarios-table th { background-color: #f2f2f2; font-weight: bold; }
     """
 
+    # --- New: Build Summary Table ---
+    summary_table_html = ""
+    if kpi_projections:
+        kpi_label = config.get('primary_business_metric_name', 'KPIs')
+        
+        summary_table_html += '<div class="section">'
+        summary_table_html += '<h2>Resumo dos Cenários Projetados</h2>'
+        summary_table_html += '<p>A tabela abaixo resume o impacto projetado de cada cenário de investimento, comparando o retorno esperado e a eficiência de custo em relação ao modelo histórico.</p>'
+        summary_table_html += '<table class="scenarios-table">'
+        summary_table_html += f'<thead><tr><th>Cenário</th><th>Investimento Mensal</th><th>Projeção de {kpi_label}</th><th>Custo por {kpi_label} (CPA)</th><th>{kpi_label} Incrementais</th></tr></thead><tbody>'
+        
+        scenario_map = [
+            ('Cenário Atual (Média Histórica)', 'current'),
+            ('Cenário Otimizado (Pico de Eficiência)', 'optimized'),
+            ('Cenário Estratégico (Modelo de Elasticidade)', 'strategic')
+        ]
+        
+        for title, key in scenario_map:
+            point = kpi_projections.get(key)
+            if point:
+                inv = point.get('Daily_Investment', 0) * 30
+                kpi = point.get('Projected_Total_KPIs', 0) * 30
+                inc_kpi = point.get('Incremental_KPI', 0) * 30
+                cpa = inv / kpi if kpi > 0 else 0
+                
+                inv_str = format_number(inv, currency=True)
+                kpi_str = format_number(kpi)
+                cpa_str = format_number(cpa, currency=True)
+                inc_kpi_str = format_number(inc_kpi)
+                
+                # Highlight the Strategic row
+                row_style = ' style="background-color: #e8f0fe;"' if key == 'strategic' else ''
+                summary_table_html += f"<tr{row_style}><td><strong>{title}</strong></td><td>{inv_str}</td><td>{kpi_str}</td><td>{cpa_str}</td><td>{inc_kpi_str}</td></tr>"
+        
+        summary_table_html += '</tbody></table></div>'
+    # --- End New ---
+
     html_template = """
     <!DOCTYPE html>
     <html lang="pt-BR">
@@ -556,6 +591,8 @@ def generate_global_gemini_report(gemini_client, config, scenarios=None, total_i
     <body>
         <div class="container">
             <div class="header"><h1>{report_title}</h1></div>
+
+            {summary_table_html}
 
             <div class="section">
                 <h2>Sumário Executivo</h2>
@@ -588,7 +625,8 @@ def generate_global_gemini_report(gemini_client, config, scenarios=None, total_i
     </body>
     </html>
     """.format(
-        report_title=narrative.get('report_title', f'Análise Estratégica Global para {advertiser_name}'),
+        report_title=html.escape(narrative.get('report_title', f'Análise Estratégica Global para {advertiser_name}')),
+        summary_table_html=summary_table_html,
         executive_summary=narrative.get('executive_summary', ''),
         scenarios_intro=narrative.get('analysis_of_scenarios', {}).get('introduction', ''),
         scenarios_analysis_html=scenarios_analysis_html,
@@ -596,7 +634,6 @@ def generate_global_gemini_report(gemini_client, config, scenarios=None, total_i
         recommendation_1=narrative.get('strategic_recommendations', [{}])[0].get('recommendation', ''),
         recommendation_2=narrative.get('strategic_recommendations', [{}, {}])[1].get('recommendation', ''),
         response_curve_img=image_b64s.get('response_curve', ''),
-        donuts_img=image_b64s.get('donuts', ''),
         css_styles=css_styles
     )
 

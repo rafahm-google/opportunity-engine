@@ -9,7 +9,7 @@ import json
 import pandas as pd
 import numpy as np
 from sklearn.linear_model import Ridge
-from sklearn.model_selection import TimeSeriesSplit
+from sklearn.model_selection import KFold
 from sklearn.metrics import r2_score
 from scipy.optimize import minimize
 import matplotlib.pyplot as plt
@@ -42,9 +42,30 @@ def hill_transform(spend, k, s):
     Returns:
         np.ndarray: The saturated spend series.
     """
-    # Add a small epsilon to prevent division by zero if spend is 0
     epsilon = 1e-9
-    return 1 / (1 + (spend / (s + epsilon))**-k)
+
+    # Handle cases where spend is zero explicitly to prevent division by zero
+    # when k is positive and also to logically return 0 for zero spend.
+    if isinstance(spend, (pd.Series, np.ndarray)):
+        # For array-like inputs, apply element-wise
+        result = np.zeros_like(spend, dtype=float)
+        non_zero_mask = spend > epsilon # Consider values very close to zero as zero
+        
+        if np.any(non_zero_mask):
+            # Calculate for non-zero spends
+            ratio = spend[non_zero_mask] / (s + epsilon)
+            # Ensure the base of the exponentiation is not zero if k is positive
+            safe_ratio = np.maximum(ratio, epsilon) 
+            result[non_zero_mask] = 1 / (1 + safe_ratio**-k)
+        return result
+    else:
+        # For scalar input
+        if spend <= epsilon:
+            return 0.0
+        else:
+            ratio = spend / (s + epsilon)
+            safe_ratio = max(ratio, epsilon)
+            return 1 / (1 + safe_ratio**-k)
 
 # --- Model Objective Function ---
 
@@ -71,8 +92,8 @@ def mmm_objective_function(params, df, kpi_col, spend_cols, other_features):
     X = transformed_df[X_cols].fillna(0)
     y = transformed_df[kpi_col].fillna(0)
 
-    # Use TimeSeriesSplit for cross-validation on time series data
-    tscv = TimeSeriesSplit(n_splits=3)
+    # Use K-Fold for cross-validation (better for attribution on short/noisy history)
+    tscv = KFold(n_splits=5, shuffle=True, random_state=42)
     scores = []
     for train_index, test_index in tscv.split(X):
         X_train, X_test = X.iloc[train_index], X.iloc[test_index]
@@ -135,7 +156,7 @@ def run_mmm_engine(config):
     # Adjust bounds and initial params for active channels only
     bounds = [(0.0, 0.9)] * len(active_spend_cols) + \
              [(0.1, 5.0)] * len(active_spend_cols) + \
-             [(df[col].mean() * 0.1, df[col].mean() * 5) for col in active_spend_cols] + \
+             [(df[col].mean() * 0.01, df[col].mean() * 20) for col in active_spend_cols] + \
              [(0.01, 10.0)]
 
     initial_params = [0.5] * len(active_spend_cols) + \
@@ -147,7 +168,7 @@ def run_mmm_engine(config):
         mmm_objective_function, initial_params,
         args=(df, kpi_col, active_spend_cols, other_features),
         bounds=bounds, method='L-BFGS-B',
-        options={'maxiter': 200, 'disp': False}
+        options={'maxiter': 1000, 'disp': False}
     )
 
     if not result.success:

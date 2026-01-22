@@ -255,7 +255,7 @@ def run_causal_impact_analysis(kpi_df, daily_investment_df, market_trends_df, pe
         
         # Calculate historical average investment up to the pre-period
         pre_period_end_date = pd.to_datetime(pre_period[1])
-        historical_investment = event_investment_agg[event_investment_agg['Date'] <= pre_period_end_date]
+        historical_investment = event_investment_agg[event_investment_agg['Date'] <= pre_period_end_date].copy()
         
         # Weekly aggregation for historical average calculation
         historical_investment['weeks'] = historical_investment['Date'].dt.to_period('W').dt.start_time

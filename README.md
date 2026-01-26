@@ -1,5 +1,5 @@
 # Automated Opportunity Engine
-
+** THIS IS NOT A GOOGLE OFFICIAL TOOL.**
 This Python application automates a comprehensive, two-stage marketing analytics workflow. It begins by analyzing historical data to find and validate the impact of specific marketing campaigns, then performs a holistic **Global Elasticity Analysis** to provide strategic, forward-looking budget recommendations.
 
 ## Features

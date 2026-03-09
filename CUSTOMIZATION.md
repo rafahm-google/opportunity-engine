@@ -98,6 +98,10 @@ The analysis can be tailored to optimize for two different primary business goal
 {
   "advertiser_name": "Advertiser B",
   "optimization_target": "CONVERSIONS",
+  "financial_targets": {
+    "target_cpa": 25.0,
+    "target_icpa": 35.0
+  },
   "p_value_threshold": 0.1,
   ...
 }
@@ -121,7 +125,9 @@ To generate more conservative and realistic scenarios, you can add the optional 
 {
   "advertiser_name": "Advertiser A",
   "average_ticket": 1000,
-  "minimum_acceptable_iroi": 1.5,
+  "financial_targets": {
+    "target_iroas": 1.5
+  },
   "investment_limit_factor": 1.5,
   "p_value_threshold": 0.1,
   ...
@@ -130,15 +136,18 @@ To generate more conservative and realistic scenarios, you can add the optional 
 
 ## 4. Defining Your Strategic Investment Limit
 
-A key feature of this analysis is the ability to define a **Strategic Limit** for your investment recommendations. This is controlled by the `minimum_acceptable_iroi` parameter in your `config.json`.
+A key feature of this analysis is the ability to define a **Strategic Limit** for your investment recommendations. Instead of just multiplying your budget arbitrarily, the engine can be strictly constrained by your actual business economics.
 
-*   `minimum_acceptable_iroi` (Incremental Return on Investment): This value sets the floor for what your business considers a worthwhile return on incremental ad spend. The script will find the maximum investment level where the iROI is still above this threshold.
+This is controlled by the `financial_targets` block in your `config.json`. You can mix and match any of these four filters. The engine will calculate the "Strategic Limit" by finding the highest possible investment point that satisfies **all** the active filters simultaneously.
+
+*   **`target_cpa`**: Sets a hard limit on the *average* Cost Per Acquisition across the entire investment.
+*   **`target_icpa`**: Sets a hard limit on the *incremental* Cost Per Acquisition. It stops the engine from recommending a budget increase if the cost to acquire the *next* single user is too high, even if the overall average CPA is still acceptable.
+*   **`target_roas`**: Sets a limit based on the total Return on Ad Spend (requires `average_ticket`).
+*   **`target_iroas`**: Sets a limit based on the *incremental* ROAS. It stops the engine when an additional R$ 1.00 invested no longer returns enough revenue to justify the spend.
 
 **How it Works:**
-- If you set `"minimum_acceptable_iroi": 1.5`, the "Strategic Limit" on the saturation curve will be the point where every additional R$ 1.00 invested still returns at least R$ 1.50.
-- If you set it to `1.0`, the limit will be the break-even point.
-
-This allows you to tailor the recommendations to your company's specific profitability and growth targets, moving beyond a purely mathematical optimization to a business-driven one.
+- If you set `"target_icpa": 30.0`, the "Strategic Limit" on the saturation curve will stop exactly at the point where acquiring one more conversion costs R$ 30.00. 
+- If you leave this block empty or omit a target, the engine assumes "infinity" (or zero for ROAS) and will fallback to capping the curve based on the `investment_limit_factor` (e.g., 1.5x your current spend).
 
 **Example:**
 ```json
@@ -146,7 +155,12 @@ This allows you to tailor the recommendations to your company's specific profita
   "advertiser_name": "Advertiser A",
   "average_ticket": 1000,
   "conversion_rate_from_kpi_to_bo": 0.015,
-  "minimum_acceptable_iroi": 1.5,
+  "financial_targets": {
+    "target_cpa": 15.0,
+    "target_icpa": 25.0,
+    "target_roas": 5.0,
+    "target_iroas": 2.0
+  },
   "p_value_threshold": 0.1,
   ...
 }

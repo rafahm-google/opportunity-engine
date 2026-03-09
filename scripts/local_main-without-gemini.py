@@ -25,7 +25,7 @@ import analysis
 import google_api
 import recommendations
 import saturation_curve
-import mmm_analysis
+import elasticity_analysis as mmm_analysis
 
 from presentation import save_accuracy_plot, save_line_chart_plot, save_investment_bar_plot, save_sessions_bar_plot, save_opportunity_curve_plot, create_comparative_saturation_md, save_investment_distribution_donuts
 
@@ -186,7 +186,7 @@ def main(config, args):
                         print(f"\n" + "-"*50 + f"\n▶ Analyzing Event: {event['product_group']} on {event['intervention_date']}")
                         
                         results_data, line_df, inv_bar_df, sessions_bar_df, accuracy_df = analysis.run_causal_impact_analysis(
-                            kpi_df, daily_investment_df, trends_df, performance_df, pre_period, post_period, event['event_id'], event['product_group'], projection_model_params
+                            kpi_df, daily_investment_df, trends_df, performance_df, pre_period, post_period, event['event_id'], event['product_group'], projection_model_params, config
                         )
 
                         if not results_data:
@@ -371,7 +371,6 @@ def main(config, args):
                     }
                 }
             ]
-            
             
             kpi_projections = {
                 'current': baseline_point,

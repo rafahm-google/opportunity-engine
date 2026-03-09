@@ -25,12 +25,17 @@ def format_number(n, currency=False):
     """Formats a number into a compact, readable string with abbreviations (k, M, B) and optional currency symbol."""
     prefix = 'R$ ' if currency else ''
     if n is None or pd.isna(n):
-        return f"{prefix}0"
+        return f"{prefix}0.00"
     
     is_negative = n < 0
     n = abs(n)
 
-    if n < 1_000:
+    if n == 0:
+        return f"{prefix}0.00"
+    elif n < 10:
+        # High precision for CPA and small values
+        formatted_num = f"{n:,.2f}"
+    elif n < 1_000:
         formatted_num = f"{n:,.0f}"
     elif n < 1_000_000:
         formatted_num = f"{n/1_000:,.1f}k"
@@ -258,8 +263,8 @@ def create_comparative_saturation_md(scenarios, output_filename, kpi_projections
     # --- New: Summary Table ---
     if kpi_projections:
         markdown_content += "## Resumo dos Cenários Projetados\n\n"
-        markdown_content += f"| Cenário | Investimento Mensal | Projeção de {kpi_name} | Custo por {kpi_name} (CPA) | {kpi_name} Incrementais |\n"
-        markdown_content += "|:---|:---|:---|:---|:---|\n"
+        markdown_content += f"| Cenário | Investimento Mensal | Projeção de {kpi_name} | Custo por {kpi_name} (CPA) | Investimento Incremental | {kpi_name} Incrementais | iCPA |\n"
+        markdown_content += "|:---|:---|:---|:---|:---|:---|:---|\n"
         
         scenario_map = [
             ('Cenário Atual (Média Histórica)', 'current'),
@@ -267,20 +272,37 @@ def create_comparative_saturation_md(scenarios, output_filename, kpi_projections
             ('Cenário Estratégico (Modelo de Elasticidade)', 'strategic')
         ]
         
+        baseline_point = kpi_projections.get('current', {})
+        baseline_inv = baseline_point.get('Daily_Investment', 0) * 30
+        
         for title, key in scenario_map:
             point = kpi_projections.get(key)
             if point:
+                # Scale from daily to monthly just once here
                 inv = point.get('Daily_Investment', 0) * 30
                 kpi = point.get('Projected_Total_KPIs', 0) * 30
                 inc_kpi = point.get('Incremental_KPI', 0) * 30
-                cpa = inv / kpi if kpi > 0 else 0
                 
+                # Calculate metrics
+                inc_inv = inv - baseline_inv
+                cpa = inv / kpi if kpi > 0 else 0
+                icpa = inc_inv / inc_kpi if inc_kpi > 0 else 0
+                
+                # Force strictly 0 incrementals for the baseline itself to avoid floating point artifacts
+                if key == 'current':
+                    inc_inv = 0.0
+                    inc_kpi = 0.0
+                    icpa = 0.0
+                
+                # Format strings
                 inv_str = format_number(inv, currency=True)
                 kpi_str = format_number(kpi)
                 cpa_str = format_number(cpa, currency=True)
+                inc_inv_str = format_number(inc_inv, currency=True)
                 inc_kpi_str = format_number(inc_kpi)
+                icpa_str = format_number(icpa, currency=True)
                 
-                markdown_content += f"| **{title}** | {inv_str} | {kpi_str} | {cpa_str} | {inc_kpi_str} |\n"
+                markdown_content += f"| **{title}** | {inv_str} | {kpi_str} | {cpa_str} | {inc_inv_str} | {inc_kpi_str} | {icpa_str} |\n"
         markdown_content += "\n---\n\n"
     # --- End New ---
     

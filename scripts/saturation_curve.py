@@ -75,7 +75,40 @@ def generate_event_saturation_curves(kpi_df, daily_investment_df, trends_df, con
 
         # --- Assemble Final Content ---
         final_markdown = f"# Análise da Curva de Saturação Mensal para o Evento\n\n## Cenários para: {product_group_for_report}\n\n"
-        final_markdown += scenarios_df.to_markdown(index=False) + "\n\n"
+        
+        kpi_name = config.get('performance_kpi_column', 'KPIs')
+        final_markdown += f"| Cenário | Investimento Mensal | Projeção de {kpi_name} | Custo por {kpi_name} (CPA) | Investimento Incremental | {kpi_name} Incrementais | iCPA |\n"
+        final_markdown += "|:---|:---|:---|:---|:---|:---|:---|\n"
+        
+        optimization_target = config.get('optimization_target', 'REVENUE').upper()
+        
+        for _, row in scenarios_df.iterrows():
+            title = row.get('Scenario', 'Desconhecido')
+            inv = row.get('Daily_Investment', 0) * 30
+            kpi = row.get('Projected_Total_KPIs', 0) * 30
+            inc_kpi = row.get('Incremental_KPI', 0) * 30
+            
+            # Use baseline data to calculate clean incrementals to avoid pandas noise
+            inc_inv = inv - (baseline_point['Daily_Investment'] * 30)
+            cpa = inv / kpi if kpi > 0 else 0
+            icpa = inc_inv / inc_kpi if inc_kpi > 0 else 0
+            
+            # Force clean zeros for the baseline row
+            if title == 'Cenário Atual':
+                inc_inv = 0.0
+                inc_kpi = 0.0
+                icpa = 0.0
+                
+            inv_str = presentation.format_number(inv, currency=True)
+            kpi_str = presentation.format_number(kpi)
+            cpa_str = presentation.format_number(cpa, currency=True)
+            inc_inv_str = presentation.format_number(inc_inv, currency=True)
+            inc_kpi_str = presentation.format_number(inc_kpi)
+            icpa_str = presentation.format_number(icpa, currency=True)
+            
+            final_markdown += f"| **{title}** | {inv_str} | {kpi_str} | {cpa_str} | {inc_inv_str} | {inc_kpi_str} | {icpa_str} |\n"
+
+        final_markdown += "\n\n"
         final_markdown += investment_table
 
         saturation_filepath = os.path.join(event_output_dir, 'SATURATION_CURVE.md')

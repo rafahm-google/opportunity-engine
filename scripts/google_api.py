@@ -64,10 +64,18 @@ def authenticate_google_services():
         return None, None, None, None
 
 
-def authenticate_gemini(api_key):
+def authenticate_gemini(api_key=None):
     """Authenticates the Gemini client using an API key."""
+    if api_key is None:
+        api_key = os.environ.get("GEMINI_API_KEY")
+    
+    if not api_key:
+        print("❌ ERROR: No Gemini API key found. Please set the GEMINI_API_KEY environment variable.")
+        return None
+        
     try:
         genai.configure(api_key=api_key)
+        # Using a valid model name for Gemini
         gemini_client = genai.GenerativeModel('gemini-3.1-pro-preview')
         print("✅ Gemini client authenticated successfully.")
         return gemini_client

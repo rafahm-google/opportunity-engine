@@ -96,7 +96,12 @@ Example `config.json`:
   "performance_kpi_column": "Sessions",
   "average_ticket": 100,
   "conversion_rate_from_kpi_to_bo": 0.05,
-  "minimum_acceptable_iroi": 2.0,
+  "financial_targets": {
+    "target_cpa": 25.0,
+    "target_icpa": 30.0,
+    "target_roas": 4.0,
+    "target_iroas": 2.0
+  },
   "optimization_target": "REVENUE",
   "investment_limit_factor": 1.5,
   "p_value_threshold": 0.1,
@@ -158,7 +163,6 @@ This is the main output of the analysis, containing the strategic budget recomme
 - **Key Files:**
     - `global_report.html`: The final, comprehensive HTML report with the Gemini-powered narrative.
     - `SATURATION_CURVE.md`: A markdown file with a detailed comparison of the budget scenarios.
-    - `investment_distribution_donuts.png`: A chart visualizing the different budget splits.
     - `combined_all_channels_saturation_curve.png`: The aggregated saturation curve for your business.
 
 ### 2. Event-Specific Reports

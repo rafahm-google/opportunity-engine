@@ -485,14 +485,48 @@ def run_opportunity_projection(kpi_df, daily_investment_df, market_trends_df, pr
         diminishing_return_point = response_curve_df.loc[diminishing_return_index].to_dict()
         diminishing_return_point['Scenario'] = 'Ponto de Inflexão'
 
+        # --- UNIVERSAL FINANCIAL FILTER LOGIC START ---
         strategic_limit_point = None
-        if optimization_target == 'REVENUE':
-            min_iroi = config.get('minimum_acceptable_iroi', 1.0)
-            profitable_df = response_curve_df[response_curve_df['Incremental_ROI'] >= min_iroi]
-            if not profitable_df.empty:
-                strategic_limit_point_idx = profitable_df['Incremental_Investment'].idxmax()
-                strategic_limit_point = response_curve_df.loc[strategic_limit_point_idx].to_dict()
-                strategic_limit_point['Scenario'] = 'Limite Estratégico'
+        financial_targets = config.get('financial_targets', {})
+        
+        # Determine applicable filters
+        max_cpa = financial_targets.get('target_cpa', float('inf'))
+        max_icpa = financial_targets.get('target_icpa', float('inf'))
+        min_roas = financial_targets.get('target_roas', 0)
+        min_iroas = financial_targets.get('target_iroas', config.get('minimum_acceptable_iroi', 0))
+
+        # Start with all points higher than baseline
+        valid_points_df = response_curve_df[response_curve_df['Daily_Investment'] > baseline_investment].copy()
+
+        # Apply Conversion filters (if mode is CONVERSIONS or if filters are explicitly set)
+        if optimization_target == 'CONVERSIONS' or max_cpa != float('inf') or max_icpa != float('inf'):
+            if 'CPA' not in valid_points_df.columns:
+                valid_points_df['CPA'] = (valid_points_df['Daily_Investment'] / valid_points_df['Projected_Total_KPIs']).fillna(0)
+            if 'iCPA' not in valid_points_df.columns:
+                valid_points_df['iCPA'] = (valid_points_df['Incremental_Investment'] / valid_points_df['Incremental_KPI']).fillna(0)
+            
+            if max_cpa != float('inf'):
+                valid_points_df = valid_points_df[valid_points_df['CPA'] <= max_cpa]
+            if max_icpa != float('inf'):
+                valid_points_df = valid_points_df[(valid_points_df['iCPA'] > 0) & (valid_points_df['iCPA'] <= max_icpa)]
+
+        # Apply Revenue filters (if mode is REVENUE or if filters are explicitly set)
+        if optimization_target == 'REVENUE' or min_roas > 0 or min_iroas > 0:
+            if 'ROAS' not in valid_points_df.columns:
+                # Total Revenue / Total Investment
+                valid_points_df['ROAS'] = (valid_points_df['Projected_Revenue'] / valid_points_df['Daily_Investment']).fillna(0)
+            
+            if min_roas > 0:
+                valid_points_df = valid_points_df[valid_points_df['ROAS'] >= min_roas]
+            if min_iroas > 0:
+                valid_points_df = valid_points_df[valid_points_df['Incremental_ROI'] >= min_iroas]
+
+        # Find the Strategic Limit: The maximum investment that satisfies all constraints
+        if not valid_points_df.empty:
+            strategic_limit_point_idx = valid_points_df['Daily_Investment'].idxmax()
+            strategic_limit_point = response_curve_df.loc[strategic_limit_point_idx].to_dict()
+            strategic_limit_point['Scenario'] = 'Limite Estratégico'
+        # --- UNIVERSAL FINANCIAL FILTER LOGIC END ---
 
         initial_marginal_gain = first_derivative[0]
         saturation_threshold = initial_marginal_gain * 0.1

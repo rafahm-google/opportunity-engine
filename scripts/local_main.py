@@ -25,7 +25,8 @@ import analysis
 import google_api
 import recommendations
 import saturation_curve
-import elasticity_analysis
+import elasticity_analysis as mmm_analysis
+
 from gemini_report import generate_html_report, generate_global_gemini_report
 from presentation import save_accuracy_plot, save_line_chart_plot, save_investment_bar_plot, save_sessions_bar_plot, save_opportunity_curve_plot, create_comparative_saturation_md, save_investment_distribution_donuts
 
@@ -111,16 +112,7 @@ def main(config, args):
     """Main execution block for the script."""
     
     load_dotenv()
-    api_key = os.getenv("GEMINI_API_KEY")
-    if not api_key:
-        print("❌ ERROR: GEMINI_API_KEY not found in your .env file.")
-        return
-    config['gemini_api_key'] = api_key
-
-    gemini_client = google_api.authenticate_gemini(config['gemini_api_key'])
-    if not gemini_client:
-        print("❌ Halting execution due to Gemini authentication failure.")
-        return
+    gemini_client = google_api.authenticate_gemini()
 
     try:
         kpi_df, daily_investment_df, trends_df, correlation_matrix = data_preprocessor.load_and_prepare_data(config)
@@ -132,9 +124,9 @@ def main(config, args):
         performance_df.rename(columns={date_col: 'Date'}, inplace=True)
         # --- End New Code ---
 
-        kpi_col = config.get('performance_kpi_column', 'kpi')
+        kpi_col = config.get('performance_kpi_column', 'Sessions')
 
-        market_analysis_df = pd.merge(kpi_df.rename(columns={'kpi': config['advertiser_name']}), trends_df, on='Date', how='left').fillna(0)
+        market_analysis_df = pd.merge(kpi_df.rename(columns={'Sessions': config['advertiser_name']}), trends_df, on='Date', how='left').fillna(0)
 
 
         increase_ratio = 1 + (config['increase_threshold_percent'] / 100)
@@ -231,12 +223,10 @@ def main(config, args):
                         
                         print(f"\n" + "="*50 + f"\n🏆 Top {len(top_events_to_report)} Events Selected. Generating Reports...\n" + "="*50)
                         
-                        successful_reports = []
+                        successful_events = []
                         base_output_dir = os.path.join(os.getcwd(), config['output_directory'])
                         advertiser_name = config.get('advertiser_name', 'default_advertiser')
                         csv_output_filename = os.path.join(base_output_dir, f"{advertiser_name}_analysis_results.csv")
-
-                        # --- Optimization: Caching for saturation models ---
 
                         for analyzed_event in top_events_to_report:
                             event = analyzed_event['event']
@@ -294,31 +284,35 @@ def main(config, args):
                                 print(f"   ✅ SUCCESS! Comprehensive data saved to: {csv_filename}")
 
                                 html_report_filename = os.path.join(event_output_dir, f"gemini_report_{file_base_name}.html")
-                                generate_html_report(gemini_client, results_data, config, image_paths, html_report_filename, market_analysis_df, analyzed_event['line_df'], scenarios_df, channel_proportions, csv_output_filename=csv_filename, correlation_matrix=correlation_matrix)
+
+                                print(f"   - 🤖 Generating Strategic Narrative with Gemini...")
+                                try:
+                                    generate_html_report(gemini_client, results_data, config, image_paths, html_report_filename, market_analysis_df, analyzed_event['line_df'], scenarios_df, channel_proportions, csv_output_filename=csv_filename, correlation_matrix=correlation_matrix)
+                                    successful_events.append(event_output_dir)
+                                    print(f"   ✅ SUCCESS! View the Gemini HTML report here: {html_report_filename}")
+                                except Exception as e:
+                                    print(f"   - ❌ ERROR: Could not generate or parse the narrative from Gemini. Details: {e}")
 
                                 recommendations.generate_recommendations_file(results_data, scenarios_df, config, event_output_dir, channel_proportions)
-
-                                successful_reports.append(html_report_filename)
-                                print(f"   ✅ SUCCESS! View the Gemini HTML report here: {html_report_filename}")
 
                             except Exception as e:
                                 print(f"❌ Report generation failed for this event: {e}")
                                 traceback.print_exc()
                                 continue
 
-                        if successful_reports:
+                        if successful_events:
                             print("\n\n" + "="*50 + "\n✅ All tasks complete.\n" + "="*50)
-                            for url in successful_reports:
-                                print(f"   - {url}")
+                            for path in successful_events:
+                                print(f"   - {path}")
                         else:
                             print("\n\n🏁 Analysis complete: No events met all criteria for reporting.")
 
         # --- New Global Analysis Workflow using Elasticity Model ---
         print("\n" + "="*50 + "\n📈 Starting Global Elasticity Analysis...\n" + "="*50)
         
-        elasticity_results = elasticity_analysis.run_elasticity_engine(config)
+        mmm_results = mmm_analysis.run_mmm_engine(config)
         
-        if elasticity_results:
+        if mmm_results:
             investment_pivot_df = daily_investment_df.pivot_table(
                 index='Date', columns='Product Group', values='investment'
             ).fillna(0).reset_index()
@@ -329,7 +323,7 @@ def main(config, args):
             (
                 response_curve_df, baseline_point, max_efficiency_point, 
                 strategic_limit_point, diminishing_return_point, saturation_point
-            ) = elasticity_analysis.generate_aggregated_response_curve(elasticity_results, config)
+            ) = mmm_analysis.generate_aggregated_response_curve(mmm_results, config)
             
             # --- DYNAMICALLY SET TOTAL INVESTMENT FROM MODEL BASELINE ---
             total_monthly_investment = 0
@@ -341,7 +335,7 @@ def main(config, args):
             save_opportunity_curve_plot(
                 response_curve_df, baseline_point, max_efficiency_point, 
                 diminishing_return_point, saturation_point, plot_filename, 
-                kpi_name=config.get('performance_kpi_column', 'kpi'),
+                kpi_name=config.get('performance_kpi_column', 'Sessions'),
                 strategic_limit_point=strategic_limit_point,
                 config=config
             )
@@ -353,8 +347,8 @@ def main(config, args):
             optimized_budget_split = analysis.find_optimal_historical_mix(kpi_df, daily_investment_df)
             if not optimized_budget_split: optimized_budget_split = {}
 
-            # The Elasticity model returns contributions as percentages (0-100). Normalize to ratios (0-1).
-            strategic_budget_split_pct = elasticity_results['contribution_pct']
+            # The MMM model returns contributions as percentages (0-100). Normalize to ratios (0-1).
+            strategic_budget_split_pct = mmm_results['contribution_pct']
             strategic_budget_split_ratio = {k: v / 100.0 for k, v in strategic_budget_split_pct.items()}
 
             scenarios = [
@@ -387,7 +381,6 @@ def main(config, args):
                 }
             ]
             
-            
             kpi_projections = {
                 'current': baseline_point,
                 'optimized': max_efficiency_point,
@@ -399,22 +392,25 @@ def main(config, args):
             kpi_name = config.get('primary_business_metric_name', 'KPIs')
             create_comparative_saturation_md(scenarios, saturation_md_output_path, kpi_projections=kpi_projections, kpi_name=kpi_name)
 
-            generate_global_gemini_report(gemini_client, config, scenarios, kpi_projections=kpi_projections)
+            # --- Generate Global Gemini Report ---
+            print("   - 🤖 Generating Global Strategic Narrative with Gemini...")
+            try:
+                generate_global_gemini_report(gemini_client, config, scenarios, kpi_projections=kpi_projections)
+                print(f"   ✅ SUCCESS! Global strategic analysis complete.")
+            except Exception as e:
+                print(f"   - ❌ ERROR: Could not generate or parse the global narrative from Gemini. Details: {e}")
+
         else:
-            print("   - ❌ ERROR: Global Elasticity analysis failed. Skipping global report generation.")
+            print("   - ❌ ERROR: Global MMM analysis failed. Skipping global report generation.")
 
     except FileNotFoundError as e:
-
         print(f"❌ ERROR: Input file not found. Please check the path in your config file. Details: {e}")
 
     except ValueError as e:
-
         print(f"❌ ERROR: A data validation or processing error occurred. Details: {e}")
 
     except Exception as e:
-
         print(f"❌ A critical, unexpected error occurred during the main process: {e}")
-
         traceback.print_exc()
 
 

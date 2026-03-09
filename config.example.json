@@ -11,7 +11,12 @@
   "product_group_filter": null,
   "average_ticket": 100,
   "conversion_rate_from_kpi_to_bo": 0.05,
-  "minimum_acceptable_iroi": 2.0,
+  "financial_targets": {
+    "target_cpa": 25.0,
+    "target_icpa": 30.0,
+    "target_roas": 4.0,
+    "target_iroas": 2.0
+  },
   "optimization_target": "REVENUE",
   "investment_limit_factor": 1.5,
   "p_value_threshold": 0.1,

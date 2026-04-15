@@ -14,7 +14,7 @@ logger = logging.getLogger("opp_engine_tracker")
 # Optional: keep logging for raw actions without email barriers, if desired later, but removing barrier logic here.
 
 st.set_page_config(
-    page_title="Opportunity Engine",
+    page_title="Max Impact Engine (Total Opportunity)",
     layout="wide",
     initial_sidebar_state="expanded"
 )
@@ -63,7 +63,7 @@ st.markdown("""
 
 
 
-st.title("Max Opportunity Engine")
+st.title("Max Impact Engine (Total Opportunity)")
 st.markdown("Explore alocações de orçamento ótimas, preveja retornos de KPI e encontre interativamente seu cenário ideal.")
 
 # Ensure we can import modules from the local scripts directory
@@ -620,6 +620,28 @@ with tab3:
                 )
                 
                 st.plotly_chart(fig_curve, use_container_width=True)
+                
+                # --- NEW: Individual Curves Visualization ---
+                st.markdown("---")
+                st.markdown("### Curvas de Resposta Individuais por Canal")
+                
+                ind_csv_path = os.path.join(output_dir, "individual_response_curves_data.csv")
+                if os.path.exists(ind_csv_path):
+                    ind_df = pd.read_csv(ind_csv_path)
+                    channels = ind_df['Channel'].unique()
+                    
+                    selected_channel = st.selectbox("Selecione um Canal para Visualizar a Curva", channels)
+                    
+                    # Sanitize channel name for filename
+                    safe_channel_name = "".join([c if c.isalnum() or c in ['-', '_'] else '_' for c in selected_channel])
+                    img_path = os.path.join(output_dir, f"individual_response_curve_{safe_channel_name}.png")
+                    
+                    if os.path.exists(img_path):
+                        st.image(img_path, caption=f"Curva de Resposta Individual: {selected_channel}")
+                    else:
+                        st.warning(f"Imagem da curva não encontrada para o canal: {selected_channel}")
+                else:
+                    st.info("Os dados das curvas individuais não foram encontrados. Certifique-se de rodar a análise primeiro.")
                 
                 st.markdown("### Mix de Orçamento Recomendado")
                 row_donut1, row_donut2 = st.columns(2)

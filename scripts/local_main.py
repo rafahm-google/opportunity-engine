@@ -271,6 +271,9 @@ def main(config, args):
                 strategic_limit_point, diminishing_return_point, saturation_point, strategic_reallocation_point
             ) = mmm_analysis.generate_aggregated_response_curve(mmm_results, config, optimized_mix=optimized_budget_split, output_dir=global_output_dir)
             
+            # --- Generate and Save Individual Response Curves ---
+            mmm_analysis.generate_individual_response_curves(mmm_results, config, output_dir=global_output_dir, strategic_limit_point=strategic_limit_point)
+            
             # --- DYNAMICALLY SET TOTAL INVESTMENT FROM MODEL BASELINE ---
             total_monthly_investment = 0
             if baseline_point and 'Daily_Investment' in baseline_point:

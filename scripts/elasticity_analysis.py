@@ -13,6 +13,8 @@ from sklearn.model_selection import KFold
 from sklearn.metrics import r2_score
 from sklearn.preprocessing import MinMaxScaler
 from scipy.optimize import minimize
+import matplotlib
+matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 import os
 import sys
@@ -539,6 +541,97 @@ def generate_aggregated_response_curve(elasticity_results, config, optimized_mix
     return res_df, baseline_point, max_efficiency_point, strategic_limit_point, None, None, strategic_reallocation_point
 
 
+def generate_individual_response_curves(elasticity_results, config, output_dir=None, strategic_limit_point=None):
+    """
+    Generates individual response curves for each channel (Spend vs. KPI)
+    holding other channels at their historical average.
+    """
+    df = elasticity_results['dataframe']
+    active_spend_cols = elasticity_results['spend_cols']
+    opt_params = elasticity_results['optimal_params']
+    mkt_model = elasticity_results['model']
+    mkt_scaler = elasticity_results['scaler']
+    organic_baseline_mean = elasticity_results['organic_baseline_mean']
+    
+    avg_daily_spend = {col: df[col].mean() for col in active_spend_cols}
+    
+    # Calculate steady-state adstock multipliers
+    adstock_multipliers = {}
+    for i, col in enumerate(active_spend_cols):
+        dummy_spend = np.ones(30)
+        adstocked = geometric_adstock(dummy_spend, opt_params['alphas'][i])
+        adstock_multipliers[col] = adstocked[-1]
+
+    limit_factor = config.get('investment_limit_factor', 3.0)
+    
+    individual_curves = []
+    
+    for target_channel in active_spend_cols:
+        target_avg_spend = avg_daily_spend[target_channel]
+        max_spend = target_avg_spend * limit_factor
+        if strategic_limit_point:
+            rec_spend = strategic_limit_point.get(f'Spend_{target_channel}_Strategic', 0)
+            max_spend = max(max_spend, rec_spend * 1.2) # Give some padding
+            
+        spend_points = np.linspace(0, max_spend, 100)
+        
+        for spend in spend_points:
+            mkt_features = []
+            for i, col in enumerate(active_spend_cols):
+                if col == target_channel:
+                    simulated_daily_spend = spend
+                else:
+                    simulated_daily_spend = avg_daily_spend[col]
+                    
+                simulated_adstocked = simulated_daily_spend * adstock_multipliers[col]
+                mkt_features.append(hill_transform(simulated_adstocked, opt_params['ks'][i], opt_params['ss'][i]))
+                
+            predicted_kpi = organic_baseline_mean + mkt_model.predict(mkt_scaler.transform([mkt_features]))[0]
+            individual_curves.append({
+                'Channel': target_channel,
+                'Channel_Spend': spend,
+                'Projected_Total_KPIs': predicted_kpi
+            })
+        
+    all_curves_df = pd.DataFrame(individual_curves)
+    
+    if output_dir:
+        csv_out_path = os.path.join(output_dir, 'individual_response_curves_data.csv')
+        all_curves_df.to_csv(csv_out_path, index=False)
+        print(f"   - ✅ Individual simulation data exported for UI: {csv_out_path}")
+        
+        # --- Plotting Logic (One per channel) ---
+        for channel in active_spend_cols:
+            plt.figure(figsize=(10, 6))
+            channel_data = all_curves_df[all_curves_df['Channel'] == channel]
+            plt.plot(channel_data['Channel_Spend'], channel_data['Projected_Total_KPIs'], label=channel, color='blue')
+            
+            # Flag Historical Average
+            hist_spend = avg_daily_spend[channel]
+            plt.axvline(x=hist_spend, color='gray', linestyle='--', label=f'Historical Avg (R$ {hist_spend:,.2f})')
+            
+            # Flag Recommended Point (Strategic Limit)
+            if strategic_limit_point:
+                rec_spend = strategic_limit_point.get(f'Spend_{channel}_Strategic', None)
+                if rec_spend is not None:
+                    plt.axvline(x=rec_spend, color='red', linestyle='--', label=f'Recommended (R$ {rec_spend:,.2f})')
+            
+            plt.xlabel('Daily Investment')
+            plt.ylabel('Projected Total Daily KPIs')
+            plt.title(f'Response Curve: {channel}')
+            plt.legend()
+            plt.grid(True)
+            
+            # Sanitize channel name for filename
+            safe_channel_name = "".join([c if c.isalnum() or c in ['-', '_'] else '_' for c in channel])
+            plot_out_path = os.path.join(output_dir, f'individual_response_curve_{safe_channel_name}.png')
+            plt.savefig(plot_out_path)
+            plt.close()
+            print(f"   - ✅ Individual curve plot saved for {channel}: {plot_out_path}")
+        
+    return all_curves_df
+
+
 if __name__ == "__main__":
     # For testing independently
     parser = argparse.ArgumentParser(description="Elasticity Analysis Analyzer")
@@ -550,4 +643,10 @@ if __name__ == "__main__":
         
     results = run_mmm_engine(config)
     if results:
-        generate_aggregated_response_curve(results, config)
+        base_output_dir = os.path.join(os.getcwd(), config.get('output_directory', 'outputs'))
+        advertiser_name = config.get('advertiser_name', 'default_advertiser')
+        global_output_dir = os.path.join(base_output_dir, advertiser_name, 'global_saturation_analysis')
+        os.makedirs(global_output_dir, exist_ok=True)
+        
+        _, _, _, strategic_limit_point, _, _, _ = generate_aggregated_response_curve(results, config, output_dir=global_output_dir)
+        generate_individual_response_curves(results, config, output_dir=global_output_dir, strategic_limit_point=strategic_limit_point)

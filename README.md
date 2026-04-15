@@ -69,7 +69,7 @@ pip install -r requirements.txt
 
 ### 3. Running the Streamlit UI Dashboard (Recommended)
 
-The easiest and most interactive way to run the Opportunity Engine is via its built-in dashboard.
+The easiest and most interactive way to run the Max Impact Engine (Total Opportunity) is via its built-in dashboard.
 
 ```bash
 # Verify your virtual environment is active, then launch Streamlit

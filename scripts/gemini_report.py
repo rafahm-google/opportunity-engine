@@ -346,7 +346,7 @@ def generate_html_report(gemini_client, results_data, config, image_paths, outpu
                     <li><strong>Limiar de Significância Estatística (p-value):</strong> {p_value_threshold}</li>
                 </ul>
             </div>
-            <div class="footer"><p>Gerado pelo Módulo de Inteligência Artificial da Opportunity Engine.</p></div>
+            <div class="footer"><p>Gerado pelo Módulo de Inteligência Artificial da Max Impact Engine (Total Opportunity).</p></div>
         </div>
     </body>
     </html>
@@ -706,7 +706,7 @@ def generate_global_gemini_report(gemini_client, config, scenarios=None, total_i
                 </ul>
             </div>
             
-            <div class="footer"><p>Relatório global gerado pela Opportunity Engine com tecnologia Gemini.</p></div>
+            <div class="footer"><p>Relatório global gerado pela Max Impact Engine (Total Opportunity) com tecnologia Gemini.</p></div>
         </div>
     </body>
     </html>
